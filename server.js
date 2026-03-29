@@ -45,8 +45,8 @@ function sanitizeConfig(cfg) {
 }
 
 function parseLogLine(line) {
-  // Parse gateway.log format: "2026-03-29T16:30:01.791Z [subsystem] message"
-  const m = line.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s+\[([^\]]+)\]\s+(.*)$/);
+  // Parse gateway.log format: "2026-03-29T16:30:01.791Z [sub] msg" or "2026-03-29T16:30:01.791+03:00 [sub] msg"
+  const m = line.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2}))\s+\[([^\]]+)\]\s+(.*)$/);
   if (m) return { ts: m[1], subsystem: m[2], msg: m[3], level: m[3].includes('ERROR') || m[2].includes('error') ? 'error' : m[3].includes('WARN') ? 'warn' : 'info' };
   return { ts: null, subsystem: null, msg: line, level: 'debug' };
 }
@@ -65,7 +65,7 @@ const routes = {};
 routes['GET /api/health'] = (req, res) => {
   const logLines = tailLines(path.join(OPENCLAW_DIR, 'logs/gateway.log'), 5);
   const lastLog = logLines[logLines.length - 1] || '';
-  const lastLogTs = lastLog.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/)?.[1] || null;
+  const lastLogTs = lastLog.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2}))/)?.[1] || null;
   const gatewayActive = lastLogTs ? (Date.now() - new Date(lastLogTs).getTime()) < 600_000 : false;
   res.json({ ok: true, uptime: process.uptime(), localIPs: getLocalIPs(), gatewayActive, lastLogTs });
 };
@@ -79,7 +79,7 @@ routes['GET /api/bots'] = (req, res) => {
   // Check gateway liveness from log
   const logLines = tailLines(path.join(OPENCLAW_DIR, 'logs/gateway.log'), 20);
   const lastLogLine = logLines[logLines.length - 1] || '';
-  const lastLogTs = lastLogLine.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/)?.[1] || null;
+  const lastLogTs = lastLogLine.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2}))/)?.[1] || null;
   const gatewayActive = lastLogTs ? (Date.now() - new Date(lastLogTs).getTime()) < 600_000 : false;
   // Count active sessions per account
   const sessionCounts = {};
@@ -109,8 +109,33 @@ routes['GET /api/bots'] = (req, res) => {
 };
 
 routes['GET /api/jobs'] = (req, res) => {
-  const jobs = readJSON(path.join(OPENCLAW_DIR, 'cron/jobs.json'));
-  res.json(jobs || []);
+  const raw = readJSON(path.join(OPENCLAW_DIR, 'cron/jobs.json'));
+  const arr = Array.isArray(raw) ? raw : (raw?.jobs || []);
+  const jobs = arr.map(j => {
+    const st = j.state || {};
+    const sched = j.schedule || {};
+    return {
+      id: j.id,
+      name: j.name || j.id,
+      description: j.description,
+      enabled: j.enabled !== false,
+      agentId: j.agentId,
+      schedule: sched.expr || (typeof j.schedule === 'string' ? j.schedule : null),
+      tz: sched.tz || null,
+      sessionTarget: j.sessionTarget,
+      model: j.payload?.model || null,
+      deliveryMode: j.delivery?.mode || null,
+      deliveryChannel: j.delivery?.channel || null,
+      lastRun: st.lastRunAtMs ? new Date(st.lastRunAtMs).toISOString() : null,
+      nextRun: st.nextRunAtMs ? new Date(st.nextRunAtMs).toISOString() : null,
+      lastStatus: st.lastStatus || st.lastRunStatus || null,
+      lastDuration: st.lastDurationMs || null,
+      consecutiveErrors: st.consecutiveErrors || 0,
+      lastError: st.lastError || null,
+      lastDeliveryStatus: st.lastDeliveryStatus || null,
+    };
+  });
+  res.json(jobs);
 };
 
 routes['GET /api/runs'] = (req, res, query) => {
@@ -119,7 +144,22 @@ routes['GET /api/runs'] = (req, res, query) => {
   if (!jobId || !/^[a-f0-9-]{36}$/.test(jobId)) return res.err(400, 'invalid jobId');
   const fp = path.join(OPENCLAW_DIR, 'cron/runs', `${jobId}.jsonl`);
   const lines = tailLines(fp, limit);
-  const runs = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  const runs = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
+    .map(r => ({
+      startedAt: r.runAtMs ? new Date(r.runAtMs).toISOString() : (r.startedAt || null),
+      finishedAt: r.ts ? new Date(r.ts).toISOString() : null,
+      duration: r.durationMs ?? r.duration ?? null,
+      status: r.status || null,
+      summary: r.summary || r.error || null,
+      error: r.error || null,
+      tokens: r.usage?.total_tokens || r.tokens || null,
+      inputTokens: r.usage?.input_tokens || null,
+      outputTokens: r.usage?.output_tokens || null,
+      model: r.model || null,
+      provider: r.provider || null,
+      deliveryStatus: r.deliveryStatus || null,
+      sessionId: r.sessionId || null,
+    }));
   res.json(runs);
 };
 
@@ -160,6 +200,12 @@ routes['GET /api/logs'] = (req, res, query) => {
   res.json(lines.map(parseLogLine));
 };
 
+routes['GET /api/config'] = (req, res) => {
+  const cfg = readJSON(path.join(OPENCLAW_DIR, 'openclaw.json'));
+  if (!cfg) return res.err(503, 'config not found');
+  res.json(sanitizeConfig(cfg));
+};
+
 routes['GET /api/sessions'] = (req, res) => {
   const raw = readJSON(path.join(OPENCLAW_DIR, 'agents/main/sessions/sessions.json')) || {};
   const result = {};
@@ -171,17 +217,36 @@ routes['GET /api/sessions'] = (req, res) => {
   res.json(result);
 };
 
+// --- Control endpoints (POST) ---
+const { exec } = require('child_process');
+
+routes['POST /api/gateway/restart'] = (req, res) => {
+  exec('launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway', { timeout: 10000 }, (err, stdout, stderr) => {
+    if (err) return res.err(500, 'restart failed: ' + (stderr || err.message));
+    res.json({ ok: true, message: 'Gateway restart requested' });
+  });
+};
+
+routes['POST /api/gateway/stop'] = (req, res) => {
+  exec('launchctl kill SIGTERM gui/$(id -u)/ai.openclaw.gateway', { timeout: 5000 }, (err) => {
+    if (err) return res.err(500, 'stop failed: ' + err.message);
+    res.json({ ok: true, message: 'Gateway stop requested' });
+  });
+};
+
 // --- Server ---
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
 
   res.json = d => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(d)); };
   res.err  = (c, m) => { res.writeHead(c, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: m })); };
 
   const url = new URL(req.url, 'http://x');
-  const key = `${req.method} ${url.pathname.replace(/\/$/, '') || '/'}`;
+  const pathname = url.pathname.replace(/\/$/, '') || '/';
+  const key = `${req.method} ${pathname}`;
   const handler = routes[key];
   if (handler) { try { handler(req, res, url.searchParams); } catch (e) { res.err(500, e.message); } return; }
 

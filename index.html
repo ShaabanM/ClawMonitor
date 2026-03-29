@@ -383,6 +383,41 @@
   .btn-primary:active { background: #6d28d9; }
   .btn-secondary { background: var(--bg3); color: var(--text2); border: 1px solid var(--card-border); }
 
+  /* Error detail */
+  .error-detail {
+    background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.15);
+    border-radius: var(--radius-sm); padding: 10px 12px;
+    font-size: 11px; color: var(--red); line-height: 1.5;
+    font-family: 'SF Mono', monospace; word-break: break-word;
+    margin-top: 8px; max-height: 120px; overflow-y: auto;
+  }
+  /* Config viewer */
+  .config-tree { font-family: 'SF Mono', monospace; font-size: 12px; line-height: 1.6; color: var(--text2); }
+  .config-key { color: var(--accent2); }
+  .config-str { color: var(--green); }
+  .config-num { color: var(--yellow); }
+  .config-bool { color: var(--blue); }
+  .config-null { color: var(--text3); }
+  .config-section { margin-bottom: 6px; }
+  .config-toggle { cursor: pointer; user-select: none; }
+  .config-toggle:hover { color: var(--text); }
+  /* Session detail */
+  .session-list { border-top: 1px solid var(--card-border); padding-top: 8px; margin-top: 8px; }
+  .session-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; color: var(--text2); }
+  .session-row .badge { font-size: 10px; }
+  /* Control buttons */
+  .ctrl-btn {
+    padding: 6px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    border: 1px solid var(--card-border); background: var(--bg3);
+    color: var(--text2); transition: all 0.15s;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .ctrl-btn:active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .ctrl-btn.danger { border-color: rgba(239,68,68,0.3); }
+  .ctrl-btn.danger:active { background: var(--red); border-color: var(--red); }
+  .ctrl-btn:disabled { opacity: 0.4; cursor: default; }
+  .ctrl-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   /* Error banner */
   .error-banner {
     background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
@@ -466,6 +501,9 @@ const S = {
   activeFile: null,
   logs: [],
   logFilter: '',
+  sessions: {},
+  expandedBot: null,
+  config: null,
   error: null,
   loading: false,
   lastRefresh: null,
@@ -620,19 +658,23 @@ async function refreshAll() {
   document.getElementById('refresh-btn').classList.add('spinning');
   render();
   try {
-    const [bots, jobs, files, logs] = await Promise.allSettled([
+    const [bots, jobs, files, logs, sessions, config] = await Promise.allSettled([
       api('/api/bots'),
       api('/api/jobs'),
       api('/api/files'),
       api('/api/logs?n=150'),
+      api('/api/sessions'),
+      api('/api/config'),
     ]);
     if (bots.status === 'fulfilled') S.bots = bots.value;
-    if (jobs.status === 'fulfilled') S.jobs = jobs.value;
+    if (jobs.status === 'fulfilled') S.jobs = Array.isArray(jobs.value) ? jobs.value : [];
     if (files.status === 'fulfilled') S.files = files.value;
     if (logs.status === 'fulfilled') S.logs = logs.value;
+    if (sessions.status === 'fulfilled') S.sessions = sessions.value || {};
+    if (config.status === 'fulfilled') S.config = config.value;
     if (bots.status === 'rejected' && jobs.status === 'rejected') {
       const firstErr = bots.reason?.message;
-      S.error = firstErr === '__SETUP__' ? '__SETUP__' : 'Cannot reach server at ' + autoBase();
+      S.error = firstErr === '__SETUP__' ? '__SETUP__' : 'Cannot reach server at ' + (autoBase() || 'unknown');
     }
     S.lastRefresh = Date.now();
   } catch (e) {
@@ -680,7 +722,23 @@ function renderBots() {
     const onlineClass = b.online ? 'online' : 'offline';
     const dotClass = b.online ? 'green' : 'red';
     const statusText = b.online ? 'Online' : 'Offline';
-    return `<div class="bot-card ${onlineClass}">
+    const isExpanded = S.expandedBot === b.id;
+    // Filter sessions for this bot
+    const botSessions = Object.entries(S.sessions).filter(([k,s]) => (s.accountId || 'default') === b.id);
+    let sessionDetail = '';
+    if (isExpanded && botSessions.length > 0) {
+      sessionDetail = `<div class="session-list">${botSessions.map(([k,s]) => {
+        const chatBadge = s.chatType === 'group' ? '<span class="badge badge-blue">Group</span>' : '<span class="badge badge-purple">DM</span>';
+        return `<div class="session-row">
+          ${chatBadge}
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(k.slice(0,20))}…</span>
+          <span style="color:var(--text3)">${timeAgo(s.updatedAt)}</span>
+        </div>`;
+      }).join('')}</div>`;
+    } else if (isExpanded && botSessions.length === 0) {
+      sessionDetail = '<div class="session-list"><div style="font-size:12px;color:var(--text3);padding:4px 0">No active sessions</div></div>';
+    }
+    return `<div class="bot-card ${onlineClass}" onclick="window.toggleBot('${b.id}')" style="cursor:pointer">
       <div class="bot-header">
         <div class="bot-avatar" style="background:${color}">${initial}</div>
         <div style="flex:1;min-width:0">
@@ -696,23 +754,36 @@ function renderBots() {
         <div class="bot-meta-row">💬 ${b.sessions} session${b.sessions !== 1 ? 's' : ''}</div>
         <div style="margin-top:4px"><span class="badge badge-blue">📱 Telegram</span>${!b.enabled ? ' <span class="badge badge-gray">Disabled</span>' : ''}</div>
       </div>
+      ${sessionDetail}
     </div>`;
   }).join('');
-  return `<div class="section-header">Active Bots</div><div class="card-grid">${cards}</div>`;
+  // Gateway control
+  const anyOnline = S.bots.some(b => b.online);
+  const gwControl = `<div class="ctrl-row" style="margin-bottom:12px">
+    <button class="ctrl-btn" onclick="event.stopPropagation();window.restartGateway()">↻ Restart Gateway</button>
+    <button class="ctrl-btn danger" onclick="event.stopPropagation();window.stopGateway()">⏹ Stop Gateway</button>
+    <span class="badge ${anyOnline ? 'badge-green' : 'badge-red'}" style="align-self:center">${anyOnline ? '● Gateway Active' : '○ Gateway Down'}</span>
+  </div>`;
+  return `<div class="section-header">Active Bots</div>${gwControl}<div class="card-grid">${cards}</div>`;
 }
 
 function renderJobs() {
   if (S.jobs.length === 0) {
     return `<div class="empty-state"><div class="empty-icon">⏱</div>No jobs found<br><small>Check ~/.openclaw/cron/jobs.json</small></div>`;
   }
-  return S.jobs.map(j => {
+  return `<div class="section-header">Scheduled Jobs</div>` + S.jobs.map(j => {
     const isExpanded = S.expandedJob === j.id;
     const hasErrors = (j.consecutiveErrors || 0) > 0;
     let statusBadge;
     if (!j.enabled) statusBadge = '<span class="badge badge-gray">⏸ Disabled</span>';
     else if (hasErrors) statusBadge = `<span class="badge badge-red">✗ Error</span>`;
-    else statusBadge = '<span class="badge badge-green">✓ OK</span>';
+    else if (j.lastStatus === 'ok') statusBadge = '<span class="badge badge-green">✓ OK</span>';
+    else statusBadge = '<span class="badge badge-gray">—</span>';
     const runsHtml = isExpanded ? renderRunsSection(j.id) : '';
+    const errorHtml = isExpanded && j.lastError ? `<div class="error-detail">${escHtml(j.lastError)}</div>` : '';
+    const modelBadge = j.model ? `<span class="badge badge-gray">🧠 ${escHtml(j.model)}</span>` : '';
+    const tzBadge = j.tz ? `<span class="badge badge-gray">${escHtml(j.tz)}</span>` : '';
+    const durationBadge = j.lastDuration ? `<span class="badge badge-gray">⏱ ${fmtDuration(j.lastDuration)}</span>` : '';
     return `<div class="job-card${isExpanded ? ' expanded' : ''}" id="job-${j.id}">
       <div class="job-header" onclick="window.toggleJob('${j.id}')">
         <div class="job-title-row">
@@ -726,9 +797,13 @@ function renderJobs() {
         ${j.description ? `<div class="job-desc">${escHtml(j.description)}</div>` : ''}
         <div class="job-tags">
           ${j.schedule ? `<span class="badge badge-purple">🕐 ${escHtml(cronHuman(j.schedule))}</span>` : ''}
+          ${tzBadge}
+          ${modelBadge}
           ${j.lastRun ? `<span class="badge badge-gray">Last: ${timeAgo(j.lastRun)}</span>` : ''}
+          ${durationBadge}
           ${j.nextRun ? `<span class="badge badge-blue">Next: ${timeIn(j.nextRun)}</span>` : ''}
         </div>
+        ${errorHtml}
       </div>
       <div class="job-runs" id="runs-${j.id}">${runsHtml}</div>
     </div>`;
@@ -741,16 +816,17 @@ function renderRunsSection(jobId) {
   }
   const runs = S.jobRuns[jobId];
   if (!runs.length) return '<div class="runs-loading">No runs found</div>';
-  return runs.slice(0, 10).map(r => {
+  return runs.slice(0, 10).reverse().map(r => {
     const ok = r.status === 'ok' || r.status === 'success';
     const icon = ok ? '✅' : '❌';
-    const summary = (r.summary || r.output || '').slice(0, 100);
+    const summary = (r.summary || '').slice(0, 120);
+    const modelTag = r.model ? ` <span style="color:var(--text3)">[${escHtml(r.model)}]</span>` : '';
     return `<div class="run-row">
       <span class="run-icon">${icon}</span>
-      <span class="run-time">${r.startedAt ? new Date(r.startedAt).toLocaleTimeString() : '—'}</span>
+      <span class="run-time">${r.startedAt ? new Date(r.startedAt).toLocaleTimeString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'}</span>
       <span class="run-dur">${fmtDuration(r.duration)}</span>
       <span class="run-tok">${fmtTokens(r.tokens)}</span>
-      <span class="run-summary">${escHtml(summary)}</span>
+      <span class="run-summary">${escHtml(summary)}${modelTag}</span>
     </div>`;
   }).join('');
 }
@@ -807,8 +883,27 @@ function renderLogs() {
   <div class="log-lines" id="log-lines">${lines}</div>`;
 }
 
+function renderConfigTree(obj, depth = 0) {
+  if (obj === null || obj === undefined) return '<span class="config-null">null</span>';
+  if (typeof obj === 'boolean') return `<span class="config-bool">${obj}</span>`;
+  if (typeof obj === 'number') return `<span class="config-num">${obj}</span>`;
+  if (typeof obj === 'string') return `<span class="config-str">"${escHtml(obj.length > 80 ? obj.slice(0,80) + '…' : obj)}"</span>`;
+  if (Array.isArray(obj)) {
+    if (obj.length === 0) return '<span class="config-null">[]</span>';
+    return '[' + obj.map(v => renderConfigTree(v, depth+1)).join(', ') + ']';
+  }
+  if (typeof obj === 'object') {
+    const entries = Object.entries(obj);
+    if (entries.length === 0) return '<span class="config-null">{}</span>';
+    const pad = '  '.repeat(depth + 1);
+    const padEnd = '  '.repeat(depth);
+    return '{\n' + entries.map(([k, v]) => `${pad}<span class="config-key">${escHtml(k)}</span>: ${renderConfigTree(v, depth+1)}`).join(',\n') + `\n${padEnd}}`;
+  }
+  return escHtml(String(obj));
+}
+
 function renderSettings() {
-  const base = autoBase();
+  const base = autoBase() || '';
   const servers = S.cfg.servers.length ? S.cfg.servers.map((s, i) => {
     const active = i === S.cfg.activeServer;
     return `<div class="server-row">
@@ -863,6 +958,30 @@ function renderSettings() {
       <div class="settings-row">
         <span class="settings-row-label"></span>
         <button class="btn btn-primary" onclick="window.refreshNow()" style="padding:7px 14px;font-size:13px">Refresh Now</button>
+      </div>
+    </div>
+  </div>
+  <div class="settings-section">
+    <div class="settings-label">Agent Config</div>
+    <div class="settings-card">
+      <div style="padding:12px 16px;max-height:300px;overflow-y:auto">
+        ${S.config ? `<pre class="config-tree" style="margin:0;background:none;border:none;padding:0;white-space:pre-wrap;word-break:break-word">${renderConfigTree(S.config)}</pre>` : '<span style="color:var(--text3);font-size:13px">Loading config…</span>'}
+      </div>
+    </div>
+  </div>
+  <div class="settings-section">
+    <div class="settings-label">Gateway Control</div>
+    <div class="settings-card">
+      <div class="settings-row">
+        <span class="settings-row-label">Gateway Status</span>
+        <span class="badge ${S.bots.some(b => b.online) ? 'badge-green' : 'badge-red'}">${S.bots.some(b => b.online) ? '● Active' : '○ Down'}</span>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Controls</span>
+        <div class="ctrl-row" style="margin:0">
+          <button class="ctrl-btn" onclick="window.restartGateway()">↻ Restart</button>
+          <button class="ctrl-btn danger" onclick="window.stopGateway()">⏹ Stop</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1029,6 +1148,37 @@ window.refreshNow = function() {
 window._logFilter = function(v) {
   S.logFilter = v;
   render();
+};
+
+window.toggleBot = function(id) {
+  S.expandedBot = S.expandedBot === id ? null : id;
+  render();
+};
+
+window.restartGateway = async function() {
+  if (!confirm('Restart the OpenClaw gateway?')) return;
+  try {
+    const base = autoBase();
+    if (!base) return;
+    const res = await fetch(base + '/api/gateway/restart', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    alert('Gateway restart requested. Refreshing in 5s…');
+    setTimeout(refreshAll, 5000);
+  } catch (e) { alert('Failed: ' + e.message); }
+};
+
+window.stopGateway = async function() {
+  if (!confirm('Stop the OpenClaw gateway? Bots will go offline.')) return;
+  try {
+    const base = autoBase();
+    if (!base) return;
+    const res = await fetch(base + '/api/gateway/stop', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    alert('Gateway stop requested.');
+    setTimeout(refreshAll, 3000);
+  } catch (e) { alert('Failed: ' + e.message); }
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
