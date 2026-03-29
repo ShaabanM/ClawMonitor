@@ -596,12 +596,19 @@ function md2html(text) {
 
 // ── API ──────────────────────────────────────────────────────────────────────
 function autoBase() {
+  // If we're being served BY the local server itself (port 7842), same-origin works perfectly
   if (window.location.port === '7842') return window.location.origin;
+  // Otherwise use the first configured server
   const s = S.cfg.servers[S.cfg.activeServer];
-  return s ? s.url.replace(/\/$/, '') : 'http://localhost:7842';
+  return s ? s.url.replace(/\/$/, '') : null;
+}
+function isConfigured() {
+  return window.location.port === '7842' || S.cfg.servers.length > 0;
 }
 async function api(path) {
-  const res = await fetch(autoBase() + path, { signal: AbortSignal.timeout(8000) });
+  const base = autoBase();
+  if (!base) throw new Error('__SETUP__');
+  const res = await fetch(base + path, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();
 }
@@ -624,7 +631,8 @@ async function refreshAll() {
     if (files.status === 'fulfilled') S.files = files.value;
     if (logs.status === 'fulfilled') S.logs = logs.value;
     if (bots.status === 'rejected' && jobs.status === 'rejected') {
-      S.error = 'Cannot reach server at ' + autoBase();
+      const firstErr = bots.reason?.message;
+      S.error = firstErr === '__SETUP__' ? '__SETUP__' : 'Cannot reach server at ' + autoBase();
     }
     S.lastRefresh = Date.now();
   } catch (e) {
@@ -876,7 +884,49 @@ function render() {
     if (btn) btn.classList.toggle('active', t === S.tab);
   });
   let html = '';
-  if (S.error) {
+
+  // ── Setup screen: no server configured yet ───────────────────────────────
+  if (S.error === '__SETUP__' || (!isConfigured() && !S.lastRefresh)) {
+    el.innerHTML = `
+      <div style="padding:32px 20px;display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center">
+        <div style="font-size:56px">🦞</div>
+        <h2 style="color:var(--text1);margin:0">Connect to your Mac</h2>
+        <p style="color:var(--text3);margin:0;max-width:320px;line-height:1.5">
+          ClawMonitor needs the IP address of the Mac running your bots. Open the app on your Mac and check the terminal for the network address.
+        </p>
+        <div style="background:var(--surface2);border-radius:10px;padding:14px 18px;font-family:monospace;font-size:14px;color:var(--accent);width:100%;max-width:320px;box-sizing:border-box">
+          node ~/Documents/ClawMonitor/server.js
+        </div>
+        <div style="width:100%;max-width:320px;display:flex;flex-direction:column;gap:10px">
+          <input id="setup-url" class="form-input" type="url"
+            placeholder="http://192.168.x.x:7842"
+            style="width:100%;box-sizing:border-box;font-size:16px;padding:14px"
+            value="${S.cfg.servers[0]?.url || ''}">
+          <button onclick="window.setupServer()" style="
+            background:var(--accent);color:#fff;border:none;border-radius:10px;
+            padding:14px;font-size:16px;font-weight:600;cursor:pointer;width:100%">
+            Connect
+          </button>
+        </div>
+        <p style="color:var(--text3);font-size:12px;margin:0">
+          Tip: if you're on the same Wi-Fi as your Mac, open<br>
+          <strong style="color:var(--text2)">http://&lt;mac-ip&gt;:7842/</strong> instead — no setup needed.
+        </p>
+      </div>`;
+    // Attach handler
+    window.setupServer = function() {
+      const url = document.getElementById('setup-url')?.value?.trim();
+      if (!url) return;
+      S.cfg.servers = [{ name: 'My Mac', url: url.replace(/\/$/, '') }];
+      S.cfg.activeServer = 0;
+      S.error = null;
+      saveCfg();
+      refreshAll();
+    };
+    return;
+  }
+
+  if (S.error && S.error !== '__SETUP__') {
     html += `<div class="error-banner">⚠️ ${escHtml(S.error)}</div>`;
   }
   if (S.loading && !S.lastRefresh) {
@@ -988,7 +1038,7 @@ refreshAll();
 
 // Register service worker
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
 // Update "X ago" in header every minute
