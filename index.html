@@ -633,48 +633,69 @@ function md2html(text) {
 }
 
 // ── API ──────────────────────────────────────────────────────────────────────
+const IS_LOCAL = window.location.port === '7842';
+
 function autoBase() {
-  // If we're being served BY the local server itself (port 7842), same-origin works perfectly
-  if (window.location.port === '7842') return window.location.origin;
-  // Otherwise use the first configured server
+  if (IS_LOCAL) return window.location.origin;
   const s = S.cfg.servers[S.cfg.activeServer];
   return s ? s.url.replace(/\/$/, '') : null;
 }
-function isConfigured() {
-  return window.location.port === '7842' || S.cfg.servers.length > 0;
-}
+function isConfigured() { return true; }
+
 async function api(path) {
   const base = autoBase();
-  if (!base) throw new Error('__SETUP__');
+  if (!base) throw new Error('no server');
   const res = await fetch(base + path, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();
 }
 
 // ── Data loading ─────────────────────────────────────────────────────────────
+async function refreshFromStatic() {
+  // GitHub Pages mode: fetch pre-collected status.json
+  const res = await fetch('./data/status.json?t=' + Date.now(), { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error('HTTP ' + res.status + ' — status.json not found');
+  const d = await res.json();
+  S.bots = d.bots || [];
+  S.jobs = d.jobs || [];
+  S.files = d.files || [];
+  S.logs = d.logs || [];
+  S.sessions = d.sessions || {};
+  S.config = d.config || null;
+  S.collectedAt = d.collectedAt || null;
+  S.machine = d.machine || null;
+  // Pre-load all runs (they're already in the static file)
+  S.jobRuns = d.runs || {};
+  // Pre-load file contents
+  S.fileContents = d.fileContents || {};
+}
+
+async function refreshFromAPI() {
+  const [bots, jobs, files, logs, sessions, config] = await Promise.allSettled([
+    api('/api/bots'), api('/api/jobs'), api('/api/files'),
+    api('/api/logs?n=150'), api('/api/sessions'), api('/api/config'),
+  ]);
+  if (bots.status === 'fulfilled') S.bots = bots.value;
+  if (jobs.status === 'fulfilled') S.jobs = Array.isArray(jobs.value) ? jobs.value : [];
+  if (files.status === 'fulfilled') S.files = files.value;
+  if (logs.status === 'fulfilled') S.logs = logs.value;
+  if (sessions.status === 'fulfilled') S.sessions = sessions.value || {};
+  if (config.status === 'fulfilled') S.config = config.value;
+  if (bots.status === 'rejected' && jobs.status === 'rejected') {
+    throw new Error('Cannot reach server at ' + (autoBase() || 'unknown'));
+  }
+}
+
 async function refreshAll() {
   S.loading = true;
   S.error = null;
   document.getElementById('refresh-btn').classList.add('spinning');
   render();
   try {
-    const [bots, jobs, files, logs, sessions, config] = await Promise.allSettled([
-      api('/api/bots'),
-      api('/api/jobs'),
-      api('/api/files'),
-      api('/api/logs?n=150'),
-      api('/api/sessions'),
-      api('/api/config'),
-    ]);
-    if (bots.status === 'fulfilled') S.bots = bots.value;
-    if (jobs.status === 'fulfilled') S.jobs = Array.isArray(jobs.value) ? jobs.value : [];
-    if (files.status === 'fulfilled') S.files = files.value;
-    if (logs.status === 'fulfilled') S.logs = logs.value;
-    if (sessions.status === 'fulfilled') S.sessions = sessions.value || {};
-    if (config.status === 'fulfilled') S.config = config.value;
-    if (bots.status === 'rejected' && jobs.status === 'rejected') {
-      const firstErr = bots.reason?.message;
-      S.error = firstErr === '__SETUP__' ? '__SETUP__' : 'Cannot reach server at ' + (autoBase() || 'unknown');
+    if (IS_LOCAL) {
+      await refreshFromAPI();
+    } else {
+      await refreshFromStatic();
     }
     S.lastRefresh = Date.now();
   } catch (e) {
@@ -689,6 +710,11 @@ async function refreshAll() {
 }
 
 async function loadRuns(jobId) {
+  // In static mode, runs are already loaded
+  if (!IS_LOCAL && S.jobRuns[jobId]) {
+    renderJobRunsInline(jobId);
+    return;
+  }
   try {
     const runs = await api('/api/runs?jobId=' + jobId + '&limit=10');
     S.jobRuns[jobId] = runs;
@@ -757,13 +783,18 @@ function renderBots() {
       ${sessionDetail}
     </div>`;
   }).join('');
-  // Gateway control
+  // Gateway control (only in local/API mode)
   const anyOnline = S.bots.some(b => b.online);
-  const gwControl = `<div class="ctrl-row" style="margin-bottom:12px">
-    <button class="ctrl-btn" onclick="event.stopPropagation();window.restartGateway()">↻ Restart Gateway</button>
-    <button class="ctrl-btn danger" onclick="event.stopPropagation();window.stopGateway()">⏹ Stop Gateway</button>
-    <span class="badge ${anyOnline ? 'badge-green' : 'badge-red'}" style="align-self:center">${anyOnline ? '● Gateway Active' : '○ Gateway Down'}</span>
-  </div>`;
+  let gwControl = `<div class="ctrl-row" style="margin-bottom:12px">
+    <span class="badge ${anyOnline ? 'badge-green' : 'badge-red'}" style="align-self:center">${anyOnline ? '● Gateway Active' : '○ Gateway Down'}</span>`;
+  if (IS_LOCAL) {
+    gwControl += `<button class="ctrl-btn" onclick="event.stopPropagation();window.restartGateway()">↻ Restart</button>
+    <button class="ctrl-btn danger" onclick="event.stopPropagation();window.stopGateway()">⏹ Stop</button>`;
+  }
+  if (!IS_LOCAL && S.collectedAt) {
+    gwControl += `<span class="badge badge-gray" style="align-self:center">Data: ${timeAgo(S.collectedAt)}</span>`;
+  }
+  gwControl += '</div>';
   return `<div class="section-header">Active Bots</div>${gwControl}<div class="card-grid">${cards}</div>`;
 }
 
@@ -903,27 +934,34 @@ function renderConfigTree(obj, depth = 0) {
 }
 
 function renderSettings() {
-  const base = autoBase() || '';
-  const servers = S.cfg.servers.length ? S.cfg.servers.map((s, i) => {
-    const active = i === S.cfg.activeServer;
-    return `<div class="server-row">
-      <div class="server-dot${active ? ' active' : ''}"></div>
-      <div class="server-info" onclick="window.selectServer(${i})">
-        <div class="server-name">${escHtml(s.name)}${active ? ' <span class="badge badge-green" style="font-size:10px">Active</span>' : ''}</div>
-        <div class="server-url">${escHtml(s.url)}</div>
-      </div>
-      ${S.cfg.servers.length > 1 ? `<button class="icon-btn" onclick="window.removeServer(${i})" title="Remove">✕</button>` : ''}
-    </div>`;
-  }).join('') : `<div class="server-row"><div style="color:var(--text3);font-size:13px">No servers configured — using auto-detect</div></div>`;
+  const mode = IS_LOCAL ? 'Live API' : 'Static (GitHub Pages)';
+  const dataAge = S.collectedAt ? timeAgo(S.collectedAt) : null;
+  const machineInfo = S.machine ? escHtml(S.machine) : '—';
 
   return `
   <div class="settings-section">
-    <div class="settings-label">Servers</div>
-    <div class="settings-card">${servers}</div>
-    <div class="add-server-form">
-      <input class="form-input" id="srv-name" type="text" placeholder="Server name (e.g. Home)">
-      <input class="form-input" id="srv-url" type="url" placeholder="URL (e.g. http://192.168.1.5:7842)">
-      <button class="btn btn-primary" onclick="window.addServer()">Add Server</button>
+    <div class="settings-label">Data Source</div>
+    <div class="settings-card">
+      <div class="settings-row">
+        <span class="settings-row-label">Mode</span>
+        <span class="badge ${IS_LOCAL ? 'badge-green' : 'badge-blue'}">${mode}</span>
+      </div>
+      ${!IS_LOCAL && dataAge ? `<div class="settings-row">
+        <span class="settings-row-label">Data Collected</span>
+        <span class="settings-row-value">${dataAge}</span>
+      </div>` : ''}
+      <div class="settings-row">
+        <span class="settings-row-label">Machine</span>
+        <span class="settings-row-value" style="font-family:monospace;font-size:12px">${machineInfo}</span>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Last Page Refresh</span>
+        <span class="settings-row-value">${S.lastRefresh ? timeAgo(S.lastRefresh) : 'Never'}</span>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label"></span>
+        <button class="btn btn-primary" onclick="window.refreshNow()" style="padding:7px 14px;font-size:13px">Refresh Now</button>
+      </div>
     </div>
   </div>
   <div class="settings-section">
@@ -945,31 +983,14 @@ function renderSettings() {
     </div>
   </div>
   <div class="settings-section">
-    <div class="settings-label">Status</div>
-    <div class="settings-card">
-      <div class="settings-row">
-        <span class="settings-row-label">Last Refresh</span>
-        <span class="settings-row-value">${S.lastRefresh ? timeAgo(S.lastRefresh) : 'Never'}</span>
-      </div>
-      <div class="settings-row">
-        <span class="settings-row-label">Server</span>
-        <span class="settings-row-value" style="font-family:monospace;font-size:11px">${escHtml(base)}</span>
-      </div>
-      <div class="settings-row">
-        <span class="settings-row-label"></span>
-        <button class="btn btn-primary" onclick="window.refreshNow()" style="padding:7px 14px;font-size:13px">Refresh Now</button>
-      </div>
-    </div>
-  </div>
-  <div class="settings-section">
     <div class="settings-label">Agent Config</div>
     <div class="settings-card">
       <div style="padding:12px 16px;max-height:300px;overflow-y:auto">
-        ${S.config ? `<pre class="config-tree" style="margin:0;background:none;border:none;padding:0;white-space:pre-wrap;word-break:break-word">${renderConfigTree(S.config)}</pre>` : '<span style="color:var(--text3);font-size:13px">Loading config…</span>'}
+        ${S.config ? `<pre class="config-tree" style="margin:0;background:none;border:none;padding:0;white-space:pre-wrap;word-break:break-word">${renderConfigTree(S.config)}</pre>` : '<span style="color:var(--text3);font-size:13px">No config loaded</span>'}
       </div>
     </div>
   </div>
-  <div class="settings-section">
+  ${IS_LOCAL ? `<div class="settings-section">
     <div class="settings-label">Gateway Control</div>
     <div class="settings-card">
       <div class="settings-row">
@@ -984,12 +1005,11 @@ function renderSettings() {
         </div>
       </div>
     </div>
-  </div>
+  </div>` : ''}
   <div class="settings-section">
     <div class="settings-label">Add to Phone</div>
     <div class="instructions">
-      <strong>iOS Safari:</strong> Open <code>${escHtml(base)}</code> → tap <strong>Share</strong> → <strong>Add to Home Screen</strong><br><br>
-      <strong>Android Chrome:</strong> Open the URL → tap menu → <strong>Add to Home Screen</strong>
+      Open this page in <strong>Safari</strong> (iOS) or <strong>Chrome</strong> (Android) → tap <strong>Share</strong> → <strong>Add to Home Screen</strong>
     </div>
   </div>`;
 }
@@ -1004,46 +1024,7 @@ function render() {
   });
   let html = '';
 
-  // ── Setup screen: no server configured yet ───────────────────────────────
-  if (S.error === '__SETUP__' || (!isConfigured() && !S.lastRefresh)) {
-    el.innerHTML = `
-      <div style="padding:32px 20px;display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center">
-        <div style="font-size:56px">🦞</div>
-        <h2 style="color:var(--text1);margin:0">Connect to your Mac</h2>
-        <p style="color:var(--text3);margin:0;max-width:320px;line-height:1.5">
-          ClawMonitor needs the IP address of the Mac running your bots. Open the app on your Mac and check the terminal for the network address.
-        </p>
-        <div style="background:var(--surface2);border-radius:10px;padding:14px 18px;font-family:monospace;font-size:14px;color:var(--accent);width:100%;max-width:320px;box-sizing:border-box">
-          node ~/Documents/ClawMonitor/server.js
-        </div>
-        <div style="width:100%;max-width:320px;display:flex;flex-direction:column;gap:10px">
-          <input id="setup-url" class="form-input" type="url"
-            placeholder="http://192.168.x.x:7842"
-            style="width:100%;box-sizing:border-box;font-size:16px;padding:14px"
-            value="${S.cfg.servers[0]?.url || ''}">
-          <button onclick="window.setupServer()" style="
-            background:var(--accent);color:#fff;border:none;border-radius:10px;
-            padding:14px;font-size:16px;font-weight:600;cursor:pointer;width:100%">
-            Connect
-          </button>
-        </div>
-        <p style="color:var(--text3);font-size:12px;margin:0">
-          Tip: if you're on the same Wi-Fi as your Mac, open<br>
-          <strong style="color:var(--text2)">http://&lt;mac-ip&gt;:7842/</strong> instead — no setup needed.
-        </p>
-      </div>`;
-    // Attach handler
-    window.setupServer = function() {
-      const url = document.getElementById('setup-url')?.value?.trim();
-      if (!url) return;
-      S.cfg.servers = [{ name: 'My Mac', url: url.replace(/\/$/, '') }];
-      S.cfg.activeServer = 0;
-      S.error = null;
-      saveCfg();
-      refreshAll();
-    };
-    return;
-  }
+  // No setup screen needed — static mode always works
 
   if (S.error && S.error !== '__SETUP__') {
     html += `<div class="error-banner">⚠️ ${escHtml(S.error)}</div>`;
@@ -1089,6 +1070,13 @@ window.toggleJob = function(id) {
 
 window.openFile = async function(name) {
   try {
+    // In static mode, file contents are pre-loaded
+    if (!IS_LOCAL && S.fileContents && S.fileContents[name]) {
+      const meta = S.files.find(f => f.name === name);
+      S.activeFile = { name, content: S.fileContents[name], size: meta?.size || 0, modified: meta?.modified || 0 };
+      render();
+      return;
+    }
     const f = await api('/api/file?name=' + encodeURIComponent(name));
     S.activeFile = f;
     render();
