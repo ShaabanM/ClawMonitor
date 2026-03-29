@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ClawMonitor">
+<meta name="theme-color" content="#0a0a12">
+<title>ClawMonitor</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  :root {
+    --bg: #0a0a12;
+    --bg2: #0f0f1a;
+    --bg3: #141425;
+    --card: #12121e;
+    --card-border: #1e1e30;
+    --accent: #7c3aed;
+    --accent2: #a78bfa;
+    --green: #10b981;
+    --red: #ef4444;
+    --yellow: #f59e0b;
+    --blue: #3b82f6;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #4a5568;
+    --header-h: 56px;
+    --tab-h: 60px;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%; width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    position: fixed; top: 0; left: 0; right: 0;
+    height: var(--header-h);
+    background: rgba(10,10,18,0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--card-border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px;
+    padding-top: env(safe-area-inset-top);
+    z-index: 100;
+  }
+  .brand {
+    font-size: 17px; font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+  .brand span { color: var(--accent2); }
+  .header-right {
+    display: flex; align-items: center; gap: 10px;
+  }
+  #refresh-status {
+    font-size: 12px; color: var(--text3);
+  }
+  #refresh-btn {
+    background: var(--bg3);
+    border: 1px solid var(--card-border);
+    color: var(--text2);
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    font-size: 16px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  #refresh-btn:active { transform: scale(0.9); background: var(--accent); color: #fff; }
+  #refresh-btn.spinning { animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #content {
+    position: fixed;
+    top: var(--header-h);
+    left: 0; right: 0;
+    bottom: var(--tab-h);
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding: 16px;
+    padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 8px);
+  }
+
+  .tab-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: calc(var(--tab-h) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    background: rgba(10,10,18,0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--card-border);
+    display: flex; align-items: stretch;
+    z-index: 100;
+  }
+  .tab-btn {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 3px; cursor: pointer;
+    background: none; border: none;
+    color: var(--text3);
+    font-size: 10px; font-weight: 500;
+    letter-spacing: 0.3px;
+    transition: color 0.15s;
+    padding: 6px 4px;
+  }
+  .tab-btn .tab-icon { font-size: 20px; line-height: 1; }
+  .tab-btn.active { color: var(--accent2); }
+  .tab-btn:active { opacity: 0.7; }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    transition: border-color 0.15s;
+  }
+  .card:active { border-color: var(--accent); }
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .bot-card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .bot-card.online { border-color: rgba(16,185,129,0.3); }
+  .bot-card.offline { border-color: rgba(239,68,68,0.2); }
+  .bot-avatar {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .bot-header { display: flex; align-items: center; gap: 10px; }
+  .bot-name { font-weight: 600; font-size: 15px; color: var(--text); }
+  .bot-status { font-size: 12px; display: flex; align-items: center; gap: 5px; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0;
+  }
+  .dot.green { background: var(--green); box-shadow: 0 0 6px rgba(16,185,129,0.6); }
+  .dot.red { background: var(--red); }
+  .dot.yellow { background: var(--yellow); }
+  .bot-meta { display: flex; flex-direction: column; gap: 4px; }
+  .bot-meta-row { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 99px;
+    font-size: 11px; font-weight: 500;
+  }
+  .badge-blue { background: rgba(59,130,246,0.15); color: var(--blue); border: 1px solid rgba(59,130,246,0.2); }
+  .badge-green { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.2); }
+  .badge-red { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+  .badge-yellow { background: rgba(245,158,11,0.15); color: var(--yellow); border: 1px solid rgba(245,158,11,0.2); }
+  .badge-purple { background: rgba(124,58,237,0.15); color: var(--accent2); border: 1px solid rgba(124,58,237,0.2); }
+  .badge-gray { background: rgba(148,163,184,0.1); color: var(--text3); border: 1px solid rgba(148,163,184,0.1); }
+
+  /* Jobs */
+  .job-card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .job-card.expanded { border-color: var(--accent); }
+  .job-header {
+    padding: 14px 16px;
+    cursor: pointer;
+    user-select: none;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .job-title-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .job-name { font-weight: 600; font-size: 15px; color: var(--text); }
+  .job-desc { font-size: 13px; color: var(--text2); }
+  .job-tags {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  }
+  .job-chevron {
+    color: var(--text3); font-size: 12px;
+    transition: transform 0.2s; flex-shrink: 0;
+  }
+  .job-card.expanded .job-chevron { transform: rotate(180deg); }
+  .job-runs {
+    display: none;
+    border-top: 1px solid var(--card-border);
+    padding: 10px 0;
+  }
+  .job-card.expanded .job-runs { display: block; }
+  .run-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 16px;
+    font-size: 12px; color: var(--text2);
+    border-bottom: 1px solid rgba(30,30,48,0.5);
+  }
+  .run-row:last-child { border-bottom: none; }
+  .run-icon { font-size: 14px; flex-shrink: 0; }
+  .run-time { color: var(--text3); width: 90px; flex-shrink: 0; font-family: monospace; font-size: 11px; }
+  .run-dur { color: var(--accent2); width: 40px; flex-shrink: 0; }
+  .run-tok { color: var(--text3); width: 44px; flex-shrink: 0; }
+  .run-summary { color: var(--text2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .runs-loading { padding: 16px; text-align: center; color: var(--text3); font-size: 13px; }
+
+  /* Files */
+  .file-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 16px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .file-row:active { border-color: var(--accent); }
+  .file-icon { font-size: 22px; flex-shrink: 0; }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name { font-weight: 500; font-size: 14px; color: var(--text); }
+  .file-meta { font-size: 12px; color: var(--text3); }
+  .file-chevron { color: var(--text3); }
+
+  /* File viewer */
+  .file-viewer {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--bg);
+    z-index: 10;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .file-viewer-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 16px; padding-bottom: 12px;
+    border-bottom: 1px solid var(--card-border);
+    position: sticky; top: 0;
+    background: var(--bg);
+    z-index: 5;
+    padding-top: 4px;
+  }
+  .back-btn {
+    background: var(--bg3); border: 1px solid var(--card-border);
+    color: var(--text2); padding: 6px 12px;
+    border-radius: var(--radius-sm); cursor: pointer;
+    font-size: 13px; white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .back-btn:active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .file-viewer-name { font-weight: 600; font-size: 15px; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .md-content { max-width: 100%; }
+  .md-content h1 { font-size: 22px; font-weight: 700; color: var(--text); margin: 20px 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--card-border); }
+  .md-content h2 { font-size: 18px; font-weight: 600; color: var(--text); margin: 18px 0 8px; }
+  .md-content h3 { font-size: 15px; font-weight: 600; color: var(--accent2); margin: 14px 0 6px; }
+  .md-content p { margin: 8px 0; color: var(--text2); line-height: 1.7; }
+  .md-content code { background: var(--bg3); border: 1px solid var(--card-border); border-radius: 4px; padding: 1px 5px; font-family: 'SF Mono', monospace; font-size: 12px; color: var(--accent2); }
+  .md-content pre { background: var(--bg3); border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 12px; overflow-x: auto; margin: 10px 0; }
+  .md-content pre code { background: none; border: none; padding: 0; font-size: 12px; color: var(--text2); }
+  .md-content ul, .md-content ol { padding-left: 20px; margin: 8px 0; }
+  .md-content li { color: var(--text2); margin: 4px 0; line-height: 1.6; }
+  .md-content hr { border: none; border-top: 1px solid var(--card-border); margin: 16px 0; }
+  .md-content strong { color: var(--text); font-weight: 600; }
+  .md-content em { color: var(--text2); font-style: italic; }
+
+  /* Logs */
+  .log-filter-wrap { margin-bottom: 10px; }
+  .log-filter {
+    width: 100%; padding: 9px 12px;
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm); color: var(--text);
+    font-size: 14px; outline: none;
+  }
+  .log-filter:focus { border-color: var(--accent); }
+  .log-filter::placeholder { color: var(--text3); }
+  .log-lines {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .log-line {
+    display: flex; gap: 8px; align-items: flex-start;
+    padding: 5px 12px;
+    border-bottom: 1px solid rgba(30,30,48,0.4);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px; line-height: 1.5;
+  }
+  .log-line:last-child { border-bottom: none; }
+  .log-ts { color: var(--text3); width: 80px; flex-shrink: 0; font-size: 10px; }
+  .log-sub { color: var(--accent2); min-width: 60px; flex-shrink: 0; }
+  .log-msg { flex: 1; word-break: break-all; }
+  .log-line.error .log-msg { color: var(--red); }
+  .log-line.warn .log-msg { color: var(--yellow); }
+  .log-line.info .log-msg { color: var(--text2); }
+  .log-line.debug .log-msg { color: var(--text3); }
+  .log-empty { padding: 24px; text-align: center; color: var(--text3); font-size: 13px; }
+
+  /* Settings */
+  .settings-section { margin-bottom: 20px; }
+  .settings-label { font-size: 11px; font-weight: 600; letter-spacing: 0.8px; color: var(--text3); text-transform: uppercase; margin-bottom: 8px; padding-left: 4px; }
+  .settings-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); overflow: hidden; }
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 16px; gap: 12px;
+    border-bottom: 1px solid var(--card-border);
+  }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row-label { font-size: 14px; color: var(--text); }
+  .settings-row-value { font-size: 13px; color: var(--text3); }
+  .toggle {
+    position: relative; width: 44px; height: 26px; flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; inset: 0;
+    background: var(--bg3); border: 1px solid var(--card-border);
+    border-radius: 13px; cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle-slider::before {
+    content: ''; position: absolute;
+    width: 20px; height: 20px; left: 2px; top: 2px;
+    background: var(--text3); border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+  }
+  .toggle input:checked + .toggle-slider { background: var(--accent); border-color: var(--accent); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(18px); background: #fff; }
+  select.settings-select {
+    background: var(--bg3); border: 1px solid var(--card-border);
+    color: var(--text); padding: 6px 10px; border-radius: var(--radius-sm);
+    font-size: 13px; outline: none; cursor: pointer;
+  }
+  .server-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-bottom: 1px solid var(--card-border);
+  }
+  .server-row:last-child { border-bottom: none; }
+  .server-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+  .server-dot.active { background: var(--green); box-shadow: 0 0 6px rgba(16,185,129,0.5); }
+  .server-info { flex: 1; min-width: 0; cursor: pointer; }
+  .server-name { font-size: 14px; font-weight: 500; color: var(--text); }
+  .server-url { font-size: 11px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icon-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--text3); font-size: 16px; padding: 4px;
+    transition: color 0.15s;
+  }
+  .icon-btn:hover { color: var(--red); }
+  .add-server-form {
+    background: var(--bg3); border: 1px solid var(--card-border);
+    border-radius: var(--radius); padding: 14px 16px; margin-top: 8px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .form-input {
+    width: 100%; padding: 9px 12px;
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm); color: var(--text);
+    font-size: 14px; outline: none;
+  }
+  .form-input:focus { border-color: var(--accent); }
+  .form-input::placeholder { color: var(--text3); }
+  .btn {
+    padding: 10px 16px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    border: none; transition: all 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:active { background: #6d28d9; }
+  .btn-secondary { background: var(--bg3); color: var(--text2); border: 1px solid var(--card-border); }
+
+  /* Error banner */
+  .error-banner {
+    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+    border-radius: var(--radius); padding: 12px 16px;
+    color: var(--red); font-size: 13px; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  /* Loading */
+  .spinner {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 3px solid var(--card-border);
+    border-top-color: var(--accent);
+    animation: spin 0.7s linear infinite;
+    margin: 40px auto;
+  }
+  .empty-state {
+    text-align: center; padding: 40px 20px;
+    color: var(--text3); font-size: 14px;
+  }
+  .empty-icon { font-size: 36px; margin-bottom: 10px; }
+
+  /* Section header */
+  .section-header {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.8px;
+    color: var(--text3); text-transform: uppercase;
+    padding: 0 4px; margin-bottom: 10px; margin-top: 4px;
+  }
+
+  /* Instructions box */
+  .instructions {
+    background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2);
+    border-radius: var(--radius); padding: 14px 16px;
+    font-size: 13px; color: var(--text2); line-height: 1.6;
+    margin-top: 8px;
+  }
+  .instructions strong { color: var(--accent2); }
+  .instructions code { background: var(--bg3); border-radius: 4px; padding: 1px 5px; font-family: monospace; font-size: 12px; color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">🦞 <span>Claw</span>Monitor</div>
+  <div class="header-right">
+    <span id="refresh-status"></span>
+    <button id="refresh-btn" onclick="window.refreshNow()" title="Refresh">↻</button>
+  </div>
+</header>
+
+<main id="content"></main>
+
+<nav class="tab-bar">
+  <button class="tab-btn" id="tab-bots" onclick="window.switchTab('bots')">
+    <span class="tab-icon">🤖</span>Bots
+  </button>
+  <button class="tab-btn" id="tab-jobs" onclick="window.switchTab('jobs')">
+    <span class="tab-icon">⏱</span>Jobs
+  </button>
+  <button class="tab-btn" id="tab-files" onclick="window.switchTab('files')">
+    <span class="tab-icon">📁</span>Files
+  </button>
+  <button class="tab-btn" id="tab-logs" onclick="window.switchTab('logs')">
+    <span class="tab-icon">📋</span>Logs
+  </button>
+  <button class="tab-btn" id="tab-settings" onclick="window.switchTab('settings')">
+    <span class="tab-icon">⚙️</span>Settings
+  </button>
+</nav>
+
+<script>
+'use strict';
+
+// ── State ────────────────────────────────────────────────────────────────────
+const S = {
+  tab: 'bots',
+  bots: [],
+  jobs: [],
+  jobRuns: {},
+  expandedJob: null,
+  files: [],
+  activeFile: null,
+  logs: [],
+  logFilter: '',
+  error: null,
+  loading: false,
+  lastRefresh: null,
+  cfg: {
+    servers: [],
+    activeServer: 0,
+    interval: 30,
+    autoRefresh: true,
+  }
+};
+
+let _refreshTimer = null;
+
+// ── Persistence ──────────────────────────────────────────────────────────────
+function loadCfg() {
+  try {
+    const raw = localStorage.getItem('clawmonitor-cfg');
+    if (raw) Object.assign(S.cfg, JSON.parse(raw));
+  } catch {}
+}
+function saveCfg() {
+  try { localStorage.setItem('clawmonitor-cfg', JSON.stringify(S.cfg)); } catch {}
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function timeAgo(ts) {
+  if (!ts) return '—';
+  const d = Date.now() - new Date(ts).getTime();
+  if (d < 60000) return 'just now';
+  if (d < 3600000) return Math.floor(d / 60000) + 'm ago';
+  if (d < 86400000) return Math.floor(d / 3600000) + 'h ago';
+  return Math.floor(d / 86400000) + 'd ago';
+}
+function timeIn(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts).getTime() - Date.now();
+  if (d < 0) return 'overdue';
+  if (d < 60000) return 'in ' + Math.floor(d / 1000) + 's';
+  if (d < 3600000) return 'in ' + Math.floor(d / 60000) + 'm';
+  return 'in ' + Math.floor(d / 3600000) + 'h';
+}
+function fmtDuration(ms) {
+  if (!ms && ms !== 0) return '—';
+  if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+  const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000);
+  return `${m}m ${s}s`;
+}
+function fmtTokens(n) {
+  if (!n) return '—';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+}
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+function cronHuman(expr, tz) {
+  if (!expr) return '';
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length < 5) return expr;
+  const [min, hr, dom, mon, dow] = parts;
+  if (min === '*' && hr === '*') return 'Every minute';
+  if (dom === '*' && mon === '*' && dow === '*') {
+    if (min !== '*' && hr !== '*') {
+      const h = parseInt(hr), m = parseInt(min);
+      const dows = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const time = `${h}:${m.toString().padStart(2,'0')}`;
+      if (dow !== '*') return `${dows[parseInt(dow)]} ${time}`;
+      return `Daily ${time}`;
+    }
+    if (min !== '*' && hr === '*') {
+      return `Every hour :${min.padStart(2,'0')}`;
+    }
+    if (hr.startsWith('*/')) return `Every ${hr.slice(2)}h`;
+    if (min.startsWith('*/')) return `Every ${min.slice(2)}m`;
+  }
+  return expr;
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fileIcon(name) {
+  if (name === 'SOUL.md') return '🧠';
+  if (name === 'USER.md') return '👤';
+  if (name === 'AGENTS.md') return '🤖';
+  if (name === 'HEARTBEAT.md') return '💓';
+  if (name === 'IDENTITY.md') return '🆔';
+  if (name === 'MEMORY.md') return '🧠';
+  if (name === 'TOOLS.md') return '🔧';
+  if (name.startsWith('JOB_')) return '⏱';
+  if (name.startsWith('AI_')) return '✨';
+  return '📋';
+}
+
+// ── Markdown renderer ────────────────────────────────────────────────────────
+function md2html(text) {
+  if (!text) return '';
+  let s = escHtml(text);
+  // fenced code blocks
+  s = s.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  // inline code
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // headers
+  s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  s = s.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  s = s.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // bold
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // italic
+  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // hr
+  s = s.replace(/^---$/gm, '<hr>');
+  // lists
+  s = s.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+  s = s.replace(/(<li>.*<\/li>\n?)+/g, m => '<ul>' + m + '</ul>');
+  // paragraphs
+  const parts = s.split(/\n{2,}/);
+  s = parts.map(p => {
+    p = p.trim();
+    if (!p) return '';
+    if (/^<(h[123]|ul|pre|hr)/.test(p)) return p;
+    return '<p>' + p.replace(/\n/g, ' ') + '</p>';
+  }).join('\n');
+  return s;
+}
+
+// ── API ──────────────────────────────────────────────────────────────────────
+function autoBase() {
+  if (window.location.port === '7842') return window.location.origin;
+  const s = S.cfg.servers[S.cfg.activeServer];
+  return s ? s.url.replace(/\/$/, '') : 'http://localhost:7842';
+}
+async function api(path) {
+  const res = await fetch(autoBase() + path, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+// ── Data loading ─────────────────────────────────────────────────────────────
+async function refreshAll() {
+  S.loading = true;
+  S.error = null;
+  document.getElementById('refresh-btn').classList.add('spinning');
+  render();
+  try {
+    const [bots, jobs, files, logs] = await Promise.allSettled([
+      api('/api/bots'),
+      api('/api/jobs'),
+      api('/api/files'),
+      api('/api/logs?n=150'),
+    ]);
+    if (bots.status === 'fulfilled') S.bots = bots.value;
+    if (jobs.status === 'fulfilled') S.jobs = jobs.value;
+    if (files.status === 'fulfilled') S.files = files.value;
+    if (logs.status === 'fulfilled') S.logs = logs.value;
+    if (bots.status === 'rejected' && jobs.status === 'rejected') {
+      S.error = 'Cannot reach server at ' + autoBase();
+    }
+    S.lastRefresh = Date.now();
+  } catch (e) {
+    S.error = e.message;
+  } finally {
+    S.loading = false;
+    document.getElementById('refresh-btn').classList.remove('spinning');
+    render();
+    updateRefreshStatus();
+    scheduleRefresh();
+  }
+}
+
+async function loadRuns(jobId) {
+  try {
+    const runs = await api('/api/runs?jobId=' + jobId + '&limit=10');
+    S.jobRuns[jobId] = runs;
+  } catch {
+    S.jobRuns[jobId] = [];
+  }
+  renderJobRunsInline(jobId);
+}
+
+function scheduleRefresh() {
+  if (_refreshTimer) clearTimeout(_refreshTimer);
+  if (S.cfg.autoRefresh) {
+    _refreshTimer = setTimeout(refreshAll, S.cfg.interval * 1000);
+  }
+}
+
+function updateRefreshStatus() {
+  const el = document.getElementById('refresh-status');
+  if (el) el.textContent = S.lastRefresh ? timeAgo(S.lastRefresh) : '';
+}
+
+// ── Renderers ─────────────────────────────────────────────────────────────────
+function renderBots() {
+  if (S.bots.length === 0) {
+    return `<div class="empty-state"><div class="empty-icon">🤖</div>No bots found<br><small>Check ~/.openclaw/openclaw.json</small></div>`;
+  }
+  const cards = S.bots.map(b => {
+    const colors = ['#7c3aed','#2563eb','#0891b2','#059669','#d97706','#dc2626'];
+    const color = colors[(b.name.charCodeAt(0) || 0) % colors.length];
+    const initial = (b.name || '?')[0].toUpperCase();
+    const onlineClass = b.online ? 'online' : 'offline';
+    const dotClass = b.online ? 'green' : 'red';
+    const statusText = b.online ? 'Online' : 'Offline';
+    return `<div class="bot-card ${onlineClass}">
+      <div class="bot-header">
+        <div class="bot-avatar" style="background:${color}">${initial}</div>
+        <div style="flex:1;min-width:0">
+          <div class="bot-name">${escHtml(b.name)}</div>
+          <div class="bot-status">
+            <span class="dot ${dotClass}"></span>
+            <span style="color:var(--${b.online ? 'green' : 'red'})">${statusText}</span>
+          </div>
+        </div>
+      </div>
+      <div class="bot-meta">
+        <div class="bot-meta-row">🕐 ${timeAgo(b.lastActive)}</div>
+        <div class="bot-meta-row">💬 ${b.sessions} session${b.sessions !== 1 ? 's' : ''}</div>
+        <div style="margin-top:4px"><span class="badge badge-blue">📱 Telegram</span>${!b.enabled ? ' <span class="badge badge-gray">Disabled</span>' : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="section-header">Active Bots</div><div class="card-grid">${cards}</div>`;
+}
+
+function renderJobs() {
+  if (S.jobs.length === 0) {
+    return `<div class="empty-state"><div class="empty-icon">⏱</div>No jobs found<br><small>Check ~/.openclaw/cron/jobs.json</small></div>`;
+  }
+  return S.jobs.map(j => {
+    const isExpanded = S.expandedJob === j.id;
+    const hasErrors = (j.consecutiveErrors || 0) > 0;
+    let statusBadge;
+    if (!j.enabled) statusBadge = '<span class="badge badge-gray">⏸ Disabled</span>';
+    else if (hasErrors) statusBadge = `<span class="badge badge-red">✗ Error</span>`;
+    else statusBadge = '<span class="badge badge-green">✓ OK</span>';
+    const runsHtml = isExpanded ? renderRunsSection(j.id) : '';
+    return `<div class="job-card${isExpanded ? ' expanded' : ''}" id="job-${j.id}">
+      <div class="job-header" onclick="window.toggleJob('${j.id}')">
+        <div class="job-title-row">
+          <span class="job-name">${escHtml(j.name || j.id)}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            ${statusBadge}
+            ${hasErrors ? `<span class="badge badge-red">⚠ ${j.consecutiveErrors}</span>` : ''}
+            <span class="job-chevron">▼</span>
+          </div>
+        </div>
+        ${j.description ? `<div class="job-desc">${escHtml(j.description)}</div>` : ''}
+        <div class="job-tags">
+          ${j.schedule ? `<span class="badge badge-purple">🕐 ${escHtml(cronHuman(j.schedule))}</span>` : ''}
+          ${j.lastRun ? `<span class="badge badge-gray">Last: ${timeAgo(j.lastRun)}</span>` : ''}
+          ${j.nextRun ? `<span class="badge badge-blue">Next: ${timeIn(j.nextRun)}</span>` : ''}
+        </div>
+      </div>
+      <div class="job-runs" id="runs-${j.id}">${runsHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderRunsSection(jobId) {
+  if (!(jobId in S.jobRuns)) {
+    return '<div class="runs-loading">Loading runs…</div>';
+  }
+  const runs = S.jobRuns[jobId];
+  if (!runs.length) return '<div class="runs-loading">No runs found</div>';
+  return runs.slice(0, 10).map(r => {
+    const ok = r.status === 'ok' || r.status === 'success';
+    const icon = ok ? '✅' : '❌';
+    const summary = (r.summary || r.output || '').slice(0, 100);
+    return `<div class="run-row">
+      <span class="run-icon">${icon}</span>
+      <span class="run-time">${r.startedAt ? new Date(r.startedAt).toLocaleTimeString() : '—'}</span>
+      <span class="run-dur">${fmtDuration(r.duration)}</span>
+      <span class="run-tok">${fmtTokens(r.tokens)}</span>
+      <span class="run-summary">${escHtml(summary)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderJobRunsInline(jobId) {
+  const el = document.getElementById('runs-' + jobId);
+  if (el) el.innerHTML = renderRunsSection(jobId);
+}
+
+function renderFiles() {
+  if (S.activeFile) {
+    return `<div class="file-viewer">
+      <div class="file-viewer-header">
+        <button class="back-btn" onclick="window.closeFile()">← Back</button>
+        <div class="file-viewer-name">${fileIcon(S.activeFile.name)} ${escHtml(S.activeFile.name)}</div>
+        <div style="font-size:11px;color:var(--text3);white-space:nowrap">${fmtBytes(S.activeFile.size)}</div>
+      </div>
+      <div class="md-content">${md2html(S.activeFile.content)}</div>
+    </div>`;
+  }
+  if (S.files.length === 0) {
+    return `<div class="empty-state"><div class="empty-icon">📁</div>No files found<br><small>Check ~/.openclaw/workspace/</small></div>`;
+  }
+  return `<div class="section-header">Workspace Files</div>` +
+    S.files.map(f => `<div class="file-row" onclick="window.openFile('${escHtml(f.name)}')">
+      <div class="file-icon">${fileIcon(f.name)}</div>
+      <div class="file-info">
+        <div class="file-name">${escHtml(f.name)}</div>
+        <div class="file-meta">${fmtBytes(f.size)} · ${timeAgo(f.modified)}</div>
+      </div>
+      <div class="file-chevron">›</div>
+    </div>`).join('');
+}
+
+function renderLogs() {
+  const filtered = S.logFilter
+    ? S.logs.filter(l => (l.msg + l.subsystem + l.ts).toLowerCase().includes(S.logFilter.toLowerCase()))
+    : S.logs;
+  const lines = filtered.length
+    ? filtered.map(l => {
+        const ts = l.ts ? new Date(l.ts).toLocaleTimeString() : '—';
+        const sub = l.subsystem ? `<span class="log-sub">[${escHtml(l.subsystem)}]</span>` : '';
+        return `<div class="log-line ${l.level}">
+          <span class="log-ts">${ts}</span>
+          ${sub}
+          <span class="log-msg">${escHtml(l.msg)}</span>
+        </div>`;
+      }).join('')
+    : `<div class="log-empty">${S.logFilter ? 'No matching lines' : 'No log lines'}</div>`;
+  return `<div class="log-filter-wrap">
+    <input class="log-filter" type="text" placeholder="Filter logs…" value="${escHtml(S.logFilter)}"
+      oninput="window._logFilter(this.value)" id="log-filter-input">
+  </div>
+  <div class="log-lines" id="log-lines">${lines}</div>`;
+}
+
+function renderSettings() {
+  const base = autoBase();
+  const servers = S.cfg.servers.length ? S.cfg.servers.map((s, i) => {
+    const active = i === S.cfg.activeServer;
+    return `<div class="server-row">
+      <div class="server-dot${active ? ' active' : ''}"></div>
+      <div class="server-info" onclick="window.selectServer(${i})">
+        <div class="server-name">${escHtml(s.name)}${active ? ' <span class="badge badge-green" style="font-size:10px">Active</span>' : ''}</div>
+        <div class="server-url">${escHtml(s.url)}</div>
+      </div>
+      ${S.cfg.servers.length > 1 ? `<button class="icon-btn" onclick="window.removeServer(${i})" title="Remove">✕</button>` : ''}
+    </div>`;
+  }).join('') : `<div class="server-row"><div style="color:var(--text3);font-size:13px">No servers configured — using auto-detect</div></div>`;
+
+  return `
+  <div class="settings-section">
+    <div class="settings-label">Servers</div>
+    <div class="settings-card">${servers}</div>
+    <div class="add-server-form">
+      <input class="form-input" id="srv-name" type="text" placeholder="Server name (e.g. Home)">
+      <input class="form-input" id="srv-url" type="url" placeholder="URL (e.g. http://192.168.1.5:7842)">
+      <button class="btn btn-primary" onclick="window.addServer()">Add Server</button>
+    </div>
+  </div>
+  <div class="settings-section">
+    <div class="settings-label">Refresh</div>
+    <div class="settings-card">
+      <div class="settings-row">
+        <span class="settings-row-label">Auto Refresh</span>
+        <label class="toggle">
+          <input type="checkbox" ${S.cfg.autoRefresh ? 'checked' : ''} onchange="window.toggleAutoRefresh()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Interval</span>
+        <select class="settings-select" onchange="window.setRefreshInterval(this.value)">
+          ${[10,15,30,60,120,300].map(v => `<option value="${v}"${S.cfg.interval==v?' selected':''}>${v < 60 ? v+'s' : (v/60)+'m'}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  </div>
+  <div class="settings-section">
+    <div class="settings-label">Status</div>
+    <div class="settings-card">
+      <div class="settings-row">
+        <span class="settings-row-label">Last Refresh</span>
+        <span class="settings-row-value">${S.lastRefresh ? timeAgo(S.lastRefresh) : 'Never'}</span>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Server</span>
+        <span class="settings-row-value" style="font-family:monospace;font-size:11px">${escHtml(base)}</span>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label"></span>
+        <button class="btn btn-primary" onclick="window.refreshNow()" style="padding:7px 14px;font-size:13px">Refresh Now</button>
+      </div>
+    </div>
+  </div>
+  <div class="settings-section">
+    <div class="settings-label">Add to Phone</div>
+    <div class="instructions">
+      <strong>iOS Safari:</strong> Open <code>${escHtml(base)}</code> → tap <strong>Share</strong> → <strong>Add to Home Screen</strong><br><br>
+      <strong>Android Chrome:</strong> Open the URL → tap menu → <strong>Add to Home Screen</strong>
+    </div>
+  </div>`;
+}
+
+function render() {
+  const el = document.getElementById('content');
+  if (!el) return;
+  // Tab active state
+  ['bots','jobs','files','logs','settings'].forEach(t => {
+    const btn = document.getElementById('tab-' + t);
+    if (btn) btn.classList.toggle('active', t === S.tab);
+  });
+  let html = '';
+  if (S.error) {
+    html += `<div class="error-banner">⚠️ ${escHtml(S.error)}</div>`;
+  }
+  if (S.loading && !S.lastRefresh) {
+    html += '<div class="spinner"></div>';
+    el.innerHTML = html;
+    return;
+  }
+  switch (S.tab) {
+    case 'bots': html += renderBots(); break;
+    case 'jobs': html += renderJobs(); break;
+    case 'files': html += renderFiles(); break;
+    case 'logs': html += renderLogs(); break;
+    case 'settings': html += renderSettings(); break;
+  }
+  el.innerHTML = html;
+  if (S.tab === 'logs') {
+    const ll = document.getElementById('log-lines');
+    if (ll) ll.scrollTop = ll.scrollHeight;
+  }
+}
+
+// ── Window-attached event handlers ────────────────────────────────────────────
+window.switchTab = function(t) {
+  S.tab = t;
+  render();
+};
+
+window.toggleJob = function(id) {
+  if (S.expandedJob === id) {
+    S.expandedJob = null;
+  } else {
+    S.expandedJob = id;
+    if (!(id in S.jobRuns)) {
+      render();
+      loadRuns(id);
+      return;
+    }
+  }
+  render();
+};
+
+window.openFile = async function(name) {
+  try {
+    const f = await api('/api/file?name=' + encodeURIComponent(name));
+    S.activeFile = f;
+    render();
+  } catch(e) {
+    S.error = 'Could not load file: ' + e.message;
+    render();
+  }
+};
+
+window.closeFile = function() {
+  S.activeFile = null;
+  render();
+};
+
+window.addServer = function() {
+  const name = document.getElementById('srv-name')?.value.trim();
+  const url = document.getElementById('srv-url')?.value.trim();
+  if (!name || !url) return;
+  S.cfg.servers.push({ name, url: url.replace(/\/$/, '') });
+  saveCfg();
+  render();
+};
+
+window.removeServer = function(i) {
+  if (S.cfg.servers.length <= 1) return;
+  S.cfg.servers.splice(i, 1);
+  if (S.cfg.activeServer >= S.cfg.servers.length) S.cfg.activeServer = 0;
+  saveCfg();
+  render();
+};
+
+window.selectServer = function(i) {
+  S.cfg.activeServer = i;
+  saveCfg();
+  render();
+  refreshAll();
+};
+
+window.toggleAutoRefresh = function() {
+  S.cfg.autoRefresh = !S.cfg.autoRefresh;
+  saveCfg();
+  scheduleRefresh();
+  render();
+};
+
+window.setRefreshInterval = function(v) {
+  S.cfg.interval = parseInt(v);
+  saveCfg();
+  scheduleRefresh();
+};
+
+window.refreshNow = function() {
+  if (_refreshTimer) clearTimeout(_refreshTimer);
+  refreshAll();
+};
+
+window._logFilter = function(v) {
+  S.logFilter = v;
+  render();
+};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadCfg();
+render();
+refreshAll();
+
+// Register service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// Update "X ago" in header every minute
+setInterval(updateRefreshStatus, 30000);
+</script>
+</body>
+</html>
