@@ -1,4 +1,4 @@
-const CACHE = 'clawmonitor-v3';
+const CACHE = 'clawmonitor-v4';
 const SHELL = ['/', '/manifest.json', '/sw.js', '/icon.svg'];
 
 self.addEventListener('install', e => {

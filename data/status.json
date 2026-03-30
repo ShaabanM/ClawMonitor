@@ -1,125 +1,11 @@
 {
-  "collectedAt": "2026-03-30T07:23:43.154Z",
+  "collectedAt": "2026-03-30T07:29:06.245Z",
   "machine": "High-Bays-Mac-mini.local",
   "health": {
     "gatewayActive": true,
-    "lastLogTs": "2026-03-30T10:23:32.727+03:00"
+    "lastLogTs": "2026-03-30T10:27:51.194+03:00"
   },
   "logs": [
-    {
-      "ts": "2026-02-26T07:39:39.328Z",
-      "subsystem": "telegram",
-      "msg": "sendMessage ok chat=7822475321 message=234",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-26T07:40:31.016Z",
-      "subsystem": "telegram",
-      "msg": "sendMessage ok chat=7822475321 message=236",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-26T07:40:32.019Z",
-      "subsystem": "telegram",
-      "msg": "sendMessage ok chat=7822475321 message=237",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-26T08:31:02.892Z",
-      "subsystem": "ws",
-      "msg": "⇄ res ✓ cron.run 69143ms conn=dced0ee4…9543 id=45c42add…e1e4",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-26T08:31:49.633Z",
-      "subsystem": "telegram",
-      "msg": "sendMessage ok chat=7822475321 message=251",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-26T08:35:17.804Z",
-      "subsystem": "telegram",
-      "msg": "sendMessage ok chat=7822475321 message=253",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-26T08:36:04.369Z",
-      "subsystem": "telegram",
-      "msg": "sendMessage ok chat=7822475321 message=255",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-26T18:56:05.493Z",
-      "subsystem": "gateway",
-      "msg": "update available (latest): v2026.2.25 (current v2026.2.23). Run: openclaw update",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T04:57:22.507Z",
-      "subsystem": "ws",
-      "msg": "⇄ res ✓ config.get 165ms conn=0f59ed4c…5515 id=0806bde0…56da",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T04:57:22.510Z",
-      "subsystem": "ws",
-      "msg": "⇄ res ✓ status 170ms conn=0f59ed4c…5515 id=8f2096f9…9de8",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T04:58:00.099Z",
-      "subsystem": "telegram",
-      "msg": "sendMessage ok chat=7822475321 message=265",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T04:58:01.113Z",
-      "subsystem": "telegram",
-      "msg": "sendMessage ok chat=7822475321 message=266",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T04:59:01.964Z",
-      "subsystem": "telegram",
-      "msg": "sendMessage ok chat=7822475321 message=268",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T06:08:12.605Z",
-      "subsystem": "agents/tool-images",
-      "msg": "Image resized to fit limits: 4cf7e69b-f9b5-4ed0-a3f4-a290e52a4fdf.jpg 1000x2000px 151.2KB -> 67.7KB (-55.2%)",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T06:08:26.268Z",
-      "subsystem": "agents/tool-images",
-      "msg": "Image resized to fit limits: 50dcb17c-b8c3-4622-b309-99abb70a1b10.jpg 1000x2000px 32.2KB -> 14.3KB (-55.7%)",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T06:08:59.603Z",
-      "subsystem": "agents/tool-images",
-      "msg": "Image resized to fit limits: 09177780-1c40-4cef-8dfc-b6c59131f645.jpg 1000x2000px 77.5KB -> 34.5KB (-55.5%)",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T06:09:14.742Z",
-      "subsystem": "agents/tool-images",
-      "msg": "Image resized to fit limits: 10287cae-53ac-4c8b-b85c-273edc5c44e6.jpg 1000x2000px 47.4KB -> 21.2KB (-55.4%)",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T06:09:25.317Z",
-      "subsystem": "agents/tool-images",
-      "msg": "Image resized to fit limits: 0799f8ef-7709-4607-b039-4781383a7c30.jpg 1000x2000px 46.6KB -> 21.5KB (-53.8%)",
-      "level": "info"
-    },
-    {
-      "ts": "2026-02-27T06:09:38.332Z",
-      "subsystem": "agents/tool-images",
-      "msg": "Image resized to fit limits: 1075a87a-a89b-422d-8329-a3e7aa9566b0.jpg 1000x2000px 115.0KB -> 49.8KB (-56.7%)",
-      "level": "info"
-    },
     {
       "ts": "2026-02-27T06:09:52.544Z",
       "subsystem": "agents/tool-images",
@@ -1205,12 +1091,126 @@
       "subsystem": "reload",
       "msg": "config change applied (dynamic reads: meta.lastTouchedAt, agents.list)",
       "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:34.621+03:00",
+      "subsystem": "reload",
+      "msg": "config change detected; evaluating reload (meta.lastTouchedAt, channels.telegram.accounts.fastmo)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:34.623+03:00",
+      "subsystem": "gateway/channels",
+      "msg": "restarting telegram channel",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:34.628+03:00",
+      "subsystem": "reload",
+      "msg": "config hot reload applied (channels.telegram.accounts.fastmo)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:35.276+03:00",
+      "subsystem": "telegram",
+      "msg": "[default] starting provider (@MiniMoSha_bot)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:36.939+03:00",
+      "subsystem": "telegram",
+      "msg": "[fastmo] starting provider (@Fast_Mo_bot)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:42.148+03:00",
+      "subsystem": "reload",
+      "msg": "config change detected; evaluating reload (meta.lastTouchedAt, bindings)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:42.149+03:00",
+      "subsystem": "reload",
+      "msg": "config change applied (dynamic reads: meta.lastTouchedAt, bindings)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:47.592+03:00",
+      "subsystem": "gateway",
+      "msg": "signal SIGTERM received",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:47.594+03:00",
+      "subsystem": "gateway",
+      "msg": "received SIGTERM; shutting down",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:47.621+03:00",
+      "subsystem": "gmail-watcher",
+      "msg": "gmail watcher stopped",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:49.120+03:00",
+      "subsystem": "canvas",
+      "msg": "host mounted at http://127.0.0.1:18789/__openclaw__/canvas/ (root /Users/minimo/.openclaw/canvas)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:49.163+03:00",
+      "subsystem": "heartbeat",
+      "msg": "started",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:49.164+03:00",
+      "subsystem": "health-monitor",
+      "msg": "started (interval: 300s, startup-grace: 60s, channel-connect-grace: 120s)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:49.180+03:00",
+      "subsystem": "gateway",
+      "msg": "agent model: openai-codex/gpt-5.4",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:49.181+03:00",
+      "subsystem": "gateway",
+      "msg": "listening on ws://127.0.0.1:18789, ws://[::1]:18789 (PID 2674)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:49.181+03:00",
+      "subsystem": "gateway",
+      "msg": "log file: /tmp/openclaw/openclaw-2026-03-30.log",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:49.598+03:00",
+      "subsystem": "agents/model-providers",
+      "msg": "[xai-auth] bootstrap config fallback: no config-backed key found",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:50.995+03:00",
+      "subsystem": "telegram",
+      "msg": "[default] starting provider (@MiniMoSha_bot)",
+      "level": "info"
+    },
+    {
+      "ts": "2026-03-30T10:27:51.194+03:00",
+      "subsystem": "telegram",
+      "msg": "[fastmo] starting provider (@Fast_Mo_bot)",
+      "level": "info"
     }
   ],
   "config": {
     "meta": {
       "lastTouchedVersion": "2026.3.28",
-      "lastTouchedAt": "2026-03-30T07:23:32.146Z"
+      "lastTouchedAt": "2026-03-30T07:27:41.570Z"
     },
     "wizard": {
       "lastRunAt": "2026-02-24T15:53:33.982Z",
@@ -1270,6 +1270,16 @@
         }
       ]
     },
+    "bindings": [
+      {
+        "type": "route",
+        "agentId": "fastmo",
+        "match": {
+          "channel": "telegram",
+          "accountId": "fastmo"
+        }
+      }
+    ],
     "messages": {
       "ackReactionScope": "group-mentions"
     },
@@ -1294,6 +1304,13 @@
             "dmPolicy": "pairing",
             "groupPolicy": "allowlist",
             "streaming": "off"
+          },
+          "fastmo": {
+            "name": "Fast Mo",
+            "enabled": true,
+            "dmPolicy": "pairing",
+            "groupPolicy": "allowlist",
+            "streaming": "partial"
           }
         }
       }
@@ -2173,7 +2190,12 @@
       "vibe": "Fast, efficient, no-nonsense, gets-it-done",
       "model": "openai-codex/gpt-5.4-mini",
       "workspace": "/Users/minimo/.openclaw-fastmo/workspace",
-      "telegram": null,
+      "telegram": {
+        "account": "fastmo",
+        "name": "Fast Mo",
+        "enabled": true,
+        "online": true
+      },
       "sessionCount": 0,
       "lastActive": null,
       "sessions": {},

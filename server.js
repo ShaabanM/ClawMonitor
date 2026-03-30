@@ -139,7 +139,13 @@ function collectStatus() {
     const identity = parseIdentity(identityText);
 
     let telegramInfo = null;
-    if (isDefault && telegram.enabled !== false) {
+    const bindings = cfg.bindings || [];
+    const binding = bindings.find(b => b.type === 'route' && b.agentId === id && b.match?.channel === 'telegram');
+    if (binding) {
+      const accId = binding.match.accountId || 'default';
+      const acc = telegramAccounts[accId] || {};
+      telegramInfo = { account: accId, name: acc.name || identity.name || id, enabled: acc.enabled !== false, online: gatewayActive && acc.enabled !== false };
+    } else if (isDefault && telegram.enabled !== false) {
       const acc = telegramAccounts.default || {};
       telegramInfo = { account: 'default', name: acc.name || identity.name || 'Main', enabled: acc.enabled !== false, online: gatewayActive && acc.enabled !== false };
     }

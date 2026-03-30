@@ -120,10 +120,22 @@ function collect() {
     const identityText = readText(path.join(workspace, 'IDENTITY.md'));
     const identity = parseIdentity(identityText);
 
-    // Telegram binding: find account bound to this agent
-    // For now: default account → main agent, others by explicit binding
+    // Telegram binding: resolve from routing bindings + defaults
     let telegramInfo = null;
-    if (isDefault && telegram.enabled !== false) {
+    const bindings = cfg.bindings || [];
+    // Check explicit bindings first
+    const binding = bindings.find(b => b.type === 'route' && b.agentId === id && b.match?.channel === 'telegram');
+    if (binding) {
+      const accId = binding.match.accountId || 'default';
+      const acc = telegramAccounts[accId] || {};
+      telegramInfo = {
+        account: accId,
+        name: acc.name || identity.name || id,
+        enabled: acc.enabled !== false,
+        online: gatewayActive && acc.enabled !== false,
+      };
+    } else if (isDefault && telegram.enabled !== false) {
+      // Default agent gets the default Telegram account if no explicit binding
       const acc = telegramAccounts.default || {};
       telegramInfo = {
         account: 'default',
@@ -131,11 +143,6 @@ function collect() {
         enabled: acc.enabled !== false,
         online: gatewayActive && acc.enabled !== false,
       };
-    }
-    // Check for explicitly bound accounts
-    for (const [accId, acc] of Object.entries(telegramAccounts)) {
-      if (accId === 'default') continue;
-      // TODO: check routing bindings to match accounts to agents
     }
 
     // Sessions for this agent
