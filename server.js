@@ -5,6 +5,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { exec } = require('child_process');
 
 const PORT = parseInt(process.env.PORT || '7842');
 const OPENCLAW_DIR = path.join(os.homedir(), '.openclaw');
@@ -13,14 +14,15 @@ const PUBLIC_DIR = __dirname;
 function readJSON(fp) {
   try { return JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { return null; }
 }
-
+function readText(fp) {
+  try { return fs.readFileSync(fp, 'utf8'); } catch { return null; }
+}
 function tailLines(fp, n = 100) {
   try {
     const lines = fs.readFileSync(fp, 'utf8').split('\n').filter(Boolean);
     return lines.slice(-Math.min(n, lines.length));
   } catch { return []; }
 }
-
 function getLocalIPs() {
   const ips = [];
   for (const iface of Object.values(os.networkInterfaces())) {
@@ -30,7 +32,6 @@ function getLocalIPs() {
   }
   return ips;
 }
-
 function sanitizeConfig(cfg) {
   const s = JSON.parse(JSON.stringify(cfg));
   if (s.channels?.telegram) {
@@ -43,24 +44,148 @@ function sanitizeConfig(cfg) {
   }
   return s;
 }
-
 function parseLogLine(line) {
-  // Parse gateway.log format: "2026-03-29T16:30:01.791Z [sub] msg" or "2026-03-29T16:30:01.791+03:00 [sub] msg"
   const m = line.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2}))\s+\[([^\]]+)\]\s+(.*)$/);
   if (m) return { ts: m[1], subsystem: m[2], msg: m[3], level: m[3].includes('ERROR') || m[2].includes('error') ? 'error' : m[3].includes('WARN') ? 'warn' : 'info' };
   return { ts: null, subsystem: null, msg: line, level: 'debug' };
 }
-
-const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript',
-  '.json': 'application/json', '.svg': 'image/svg+xml',
-  '.css': 'text/css', '.png': 'image/png', '.ico': 'image/x-icon',
-};
+function parseIdentity(text) {
+  if (!text) return {};
+  const get = (label) => {
+    const m = text.match(new RegExp(`\\*\\*${label}:\\*\\*\\s*(.+)`, 'i'));
+    if (!m) return null;
+    let v = m[1].trim().replace(/^_\(.*?\)_$/g, '').replace(/^_|_$/g, '').trim();
+    if (!v || v.startsWith('(') || v === '—' || v === '-') return null;
+    return v;
+  };
+  return { name: get('Name'), creature: get('Creature'), vibe: get('Vibe'), emoji: get('Emoji') };
+}
 
 const FILE_PRIORITY = ['SOUL.md','USER.md','AGENTS.md','HEARTBEAT.md','IDENTITY.md','MEMORY.md','TOOLS.md'];
 
-// --- Route handlers ---
+function collectWorkspaceFiles(workDir) {
+  try {
+    const files = fs.readdirSync(workDir)
+      .filter(f => f.endsWith('.md') && !f.startsWith('.'))
+      .map(f => { const st = fs.statSync(path.join(workDir, f)); return { name: f, size: st.size, modified: st.mtimeMs }; })
+      .sort((a, b) => {
+        const ai = FILE_PRIORITY.indexOf(a.name), bi = FILE_PRIORITY.indexOf(b.name);
+        if (ai >= 0 && bi >= 0) return ai - bi;
+        if (ai >= 0) return -1; if (bi >= 0) return 1;
+        const aJob = a.name.startsWith('JOB_') || a.name.startsWith('AI_');
+        const bJob = b.name.startsWith('JOB_') || b.name.startsWith('AI_');
+        if (aJob && !bJob) return -1; if (!aJob && bJob) return 1;
+        return a.name.localeCompare(b.name);
+      });
+    return files;
+  } catch { return []; }
+}
+
+function normalizeJob(j, agentId) {
+  const st = j.state || {};
+  const sched = j.schedule || {};
+  return {
+    id: j.id, name: j.name || j.id, description: j.description,
+    enabled: j.enabled !== false, agentId,
+    schedule: sched.expr || (typeof j.schedule === 'string' ? j.schedule : null),
+    tz: sched.tz || null, model: j.payload?.model || null,
+    deliveryMode: j.delivery?.mode || null,
+    lastRun: st.lastRunAtMs ? new Date(st.lastRunAtMs).toISOString() : null,
+    nextRun: st.nextRunAtMs ? new Date(st.nextRunAtMs).toISOString() : null,
+    lastStatus: st.lastStatus || st.lastRunStatus || null,
+    lastDuration: st.lastDurationMs || null,
+    consecutiveErrors: st.consecutiveErrors || 0,
+    lastError: st.lastError || null,
+  };
+}
+
+function normalizeRun(r) {
+  return {
+    startedAt: r.runAtMs ? new Date(r.runAtMs).toISOString() : (r.startedAt || null),
+    finishedAt: r.ts ? new Date(r.ts).toISOString() : null,
+    duration: r.durationMs ?? r.duration ?? null,
+    status: r.status || null,
+    summary: r.summary || r.error || null,
+    error: r.error || null,
+    tokens: r.usage?.total_tokens || r.tokens || null,
+    model: r.model || null,
+  };
+}
+
+// ── Full status collection (same shape as collect.js for static mode) ────────
+function collectStatus() {
+  const cfg = readJSON(path.join(OPENCLAW_DIR, 'openclaw.json'));
+  if (!cfg) return null;
+
+  const logLines = tailLines(path.join(OPENCLAW_DIR, 'logs/gateway.log'), 200);
+  const lastLogLine = logLines[logLines.length - 1] || '';
+  const lastLogTs = lastLogLine.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2}))/)?.[1] || null;
+  const gatewayActive = lastLogTs ? (Date.now() - new Date(lastLogTs).getTime()) < 600_000 : false;
+
+  const agentDefaults = cfg.agents?.defaults || {};
+  const agentList = cfg.agents?.list || [{ id: 'main' }];
+  const telegram = cfg.channels?.telegram || {};
+  const telegramAccounts = telegram.accounts || {};
+
+  const rawJobs = readJSON(path.join(OPENCLAW_DIR, 'cron/jobs.json'));
+  const allJobs = Array.isArray(rawJobs) ? rawJobs : (rawJobs?.jobs || []);
+
+  const agents = agentList.map(agentDef => {
+    const id = agentDef.id;
+    const isDefault = id === 'main';
+    const workspace = agentDef.workspace || agentDefaults.workspace || path.join(OPENCLAW_DIR, 'workspace');
+
+    const identityText = readText(path.join(workspace, 'IDENTITY.md'));
+    const identity = parseIdentity(identityText);
+
+    let telegramInfo = null;
+    if (isDefault && telegram.enabled !== false) {
+      const acc = telegramAccounts.default || {};
+      telegramInfo = { account: 'default', name: acc.name || identity.name || 'Main', enabled: acc.enabled !== false, online: gatewayActive && acc.enabled !== false };
+    }
+
+    const sessionsFile = readJSON(path.join(OPENCLAW_DIR, `agents/${id}/sessions/sessions.json`)) || {};
+    const sessions = {};
+    for (const [k, v] of Object.entries(sessionsFile)) {
+      sessions[k] = { sessionId: v.sessionId, updatedAt: v.updatedAt, chatType: v.chatType, accountId: v.deliveryContext?.accountId, channel: v.deliveryContext?.channel };
+    }
+    let lastActive = null;
+    for (const s of Object.values(sessionsFile)) { if (!lastActive || s.updatedAt > lastActive) lastActive = s.updatedAt; }
+
+    const jobs = allJobs.filter(j => (j.agentId || 'main') === id).map(j => normalizeJob(j, id));
+    const runs = {};
+    for (const j of jobs) {
+      const fp = path.join(OPENCLAW_DIR, 'cron/runs', `${j.id}.jsonl`);
+      runs[j.id] = tailLines(fp, 10).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).map(normalizeRun);
+    }
+
+    const files = collectWorkspaceFiles(workspace);
+    const fileContents = {};
+    for (const f of files) {
+      if (f.size < 50000) { const c = readText(path.join(workspace, f.name)); if (c) fileContents[f.name] = c; }
+    }
+
+    return {
+      id, name: identity.name || agentDef.name || id, emoji: identity.emoji || null,
+      creature: identity.creature || null, vibe: identity.vibe || null,
+      model: agentDef.model || agentDefaults.model?.primary || null, workspace,
+      telegram: telegramInfo, sessionCount: Object.keys(sessions).length, lastActive,
+      sessions, jobs, runs, files, fileContents,
+    };
+  });
+
+  return {
+    collectedAt: new Date().toISOString(), machine: os.hostname(),
+    health: { gatewayActive, lastLogTs },
+    logs: logLines.map(parseLogLine),
+    config: sanitizeConfig(cfg),
+    agents,
+  };
+}
+
+// ── Routes ───────────────────────────────────────────────────────────────────
 const routes = {};
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml', '.css': 'text/css', '.png': 'image/png' };
 
 routes['GET /api/health'] = (req, res) => {
   const logLines = tailLines(path.join(OPENCLAW_DIR, 'logs/gateway.log'), 5);
@@ -70,155 +195,11 @@ routes['GET /api/health'] = (req, res) => {
   res.json({ ok: true, uptime: process.uptime(), localIPs: getLocalIPs(), gatewayActive, lastLogTs });
 };
 
-routes['GET /api/bots'] = (req, res) => {
-  const cfg = readJSON(path.join(OPENCLAW_DIR, 'openclaw.json'));
-  if (!cfg) return res.err(503, 'openclaw config not found');
-  const sessions = readJSON(path.join(OPENCLAW_DIR, 'agents/main/sessions/sessions.json')) || {};
-  const telegram = cfg.channels?.telegram || {};
-  const accounts = { default: { name: 'Main', ...(telegram.accounts?.default || {}) }, ...(telegram.accounts || {}) };
-  // Check gateway liveness from log
-  const logLines = tailLines(path.join(OPENCLAW_DIR, 'logs/gateway.log'), 20);
-  const lastLogLine = logLines[logLines.length - 1] || '';
-  const lastLogTs = lastLogLine.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2}))/)?.[1] || null;
-  const gatewayActive = lastLogTs ? (Date.now() - new Date(lastLogTs).getTime()) < 600_000 : false;
-  // Count active sessions per account
-  const sessionCounts = {};
-  for (const [key, s] of Object.entries(sessions)) {
-    const acc = s.deliveryContext?.accountId || 'default';
-    sessionCounts[acc] = (sessionCounts[acc] || 0) + 1;
-  }
-  // Get most recent session activity
-  let lastActive = null;
-  for (const s of Object.values(sessions)) {
-    if (!lastActive || s.updatedAt > lastActive) lastActive = s.updatedAt;
-  }
-  const bots = [];
-  for (const [id, acc] of Object.entries(accounts)) {
-    bots.push({
-      id,
-      name: acc.name || id,
-      enabled: acc.enabled !== false,
-      channel: 'telegram',
-      online: gatewayActive && acc.enabled !== false,
-      sessions: sessionCounts[id] || 0,
-      lastActive: id === 'default' ? lastActive : null,
-      dmPolicy: acc.dmPolicy || telegram.dmPolicy,
-    });
-  }
-  res.json(bots);
+routes['GET /api/status'] = (req, res) => {
+  const status = collectStatus();
+  if (!status) return res.err(503, 'openclaw config not found');
+  res.json(status);
 };
-
-routes['GET /api/jobs'] = (req, res) => {
-  const raw = readJSON(path.join(OPENCLAW_DIR, 'cron/jobs.json'));
-  const arr = Array.isArray(raw) ? raw : (raw?.jobs || []);
-  const jobs = arr.map(j => {
-    const st = j.state || {};
-    const sched = j.schedule || {};
-    return {
-      id: j.id,
-      name: j.name || j.id,
-      description: j.description,
-      enabled: j.enabled !== false,
-      agentId: j.agentId,
-      schedule: sched.expr || (typeof j.schedule === 'string' ? j.schedule : null),
-      tz: sched.tz || null,
-      sessionTarget: j.sessionTarget,
-      model: j.payload?.model || null,
-      deliveryMode: j.delivery?.mode || null,
-      deliveryChannel: j.delivery?.channel || null,
-      lastRun: st.lastRunAtMs ? new Date(st.lastRunAtMs).toISOString() : null,
-      nextRun: st.nextRunAtMs ? new Date(st.nextRunAtMs).toISOString() : null,
-      lastStatus: st.lastStatus || st.lastRunStatus || null,
-      lastDuration: st.lastDurationMs || null,
-      consecutiveErrors: st.consecutiveErrors || 0,
-      lastError: st.lastError || null,
-      lastDeliveryStatus: st.lastDeliveryStatus || null,
-    };
-  });
-  res.json(jobs);
-};
-
-routes['GET /api/runs'] = (req, res, query) => {
-  const jobId = query.get('jobId');
-  const limit = Math.min(parseInt(query.get('limit') || '20'), 100);
-  if (!jobId || !/^[a-f0-9-]{36}$/.test(jobId)) return res.err(400, 'invalid jobId');
-  const fp = path.join(OPENCLAW_DIR, 'cron/runs', `${jobId}.jsonl`);
-  const lines = tailLines(fp, limit);
-  const runs = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
-    .map(r => ({
-      startedAt: r.runAtMs ? new Date(r.runAtMs).toISOString() : (r.startedAt || null),
-      finishedAt: r.ts ? new Date(r.ts).toISOString() : null,
-      duration: r.durationMs ?? r.duration ?? null,
-      status: r.status || null,
-      summary: r.summary || r.error || null,
-      error: r.error || null,
-      tokens: r.usage?.total_tokens || r.tokens || null,
-      inputTokens: r.usage?.input_tokens || null,
-      outputTokens: r.usage?.output_tokens || null,
-      model: r.model || null,
-      provider: r.provider || null,
-      deliveryStatus: r.deliveryStatus || null,
-      sessionId: r.sessionId || null,
-    }));
-  res.json(runs);
-};
-
-routes['GET /api/files'] = (req, res) => {
-  const dir = path.join(OPENCLAW_DIR, 'workspace');
-  try {
-    const files = fs.readdirSync(dir)
-      .filter(f => f.endsWith('.md') && !f.startsWith('.'))
-      .map(f => { const st = fs.statSync(path.join(dir, f)); return { name: f, size: st.size, modified: st.mtimeMs }; })
-      .sort((a, b) => {
-        const ai = FILE_PRIORITY.indexOf(a.name), bi = FILE_PRIORITY.indexOf(b.name);
-        if (ai >= 0 && bi >= 0) return ai - bi;
-        if (ai >= 0) return -1; if (bi >= 0) return 1;
-        // JOB_ files next
-        const aJob = a.name.startsWith('JOB_') || a.name.startsWith('AI_');
-        const bJob = b.name.startsWith('JOB_') || b.name.startsWith('AI_');
-        if (aJob && !bJob) return -1; if (!aJob && bJob) return 1;
-        return a.name.localeCompare(b.name);
-      });
-    res.json(files);
-  } catch { res.json([]); }
-};
-
-routes['GET /api/file'] = (req, res, query) => {
-  const name = query.get('name');
-  if (!name || !name.endsWith('.md') || name.includes('/') || name.includes('..')) return res.err(400, 'invalid name');
-  const fp = path.join(OPENCLAW_DIR, 'workspace', name);
-  try {
-    const content = fs.readFileSync(fp, 'utf8');
-    const st = fs.statSync(fp);
-    res.json({ name, content, size: st.size, modified: st.mtimeMs });
-  } catch { res.err(404, 'not found'); }
-};
-
-routes['GET /api/logs'] = (req, res, query) => {
-  const n = Math.min(parseInt(query.get('n') || '100'), 500);
-  const lines = tailLines(path.join(OPENCLAW_DIR, 'logs/gateway.log'), n);
-  res.json(lines.map(parseLogLine));
-};
-
-routes['GET /api/config'] = (req, res) => {
-  const cfg = readJSON(path.join(OPENCLAW_DIR, 'openclaw.json'));
-  if (!cfg) return res.err(503, 'config not found');
-  res.json(sanitizeConfig(cfg));
-};
-
-routes['GET /api/sessions'] = (req, res) => {
-  const raw = readJSON(path.join(OPENCLAW_DIR, 'agents/main/sessions/sessions.json')) || {};
-  const result = {};
-  for (const [k, v] of Object.entries(raw)) {
-    result[k] = { sessionId: v.sessionId, updatedAt: v.updatedAt, chatType: v.chatType,
-      accountId: v.deliveryContext?.accountId, channel: v.deliveryContext?.channel,
-      abortedLastRun: v.abortedLastRun, compactionCount: v.compactionCount };
-  }
-  res.json(result);
-};
-
-// --- Control endpoints (POST) ---
-const { exec } = require('child_process');
 
 routes['POST /api/gateway/restart'] = (req, res) => {
   exec('launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway', { timeout: 10000 }, (err, stdout, stderr) => {
@@ -234,7 +215,7 @@ routes['POST /api/gateway/stop'] = (req, res) => {
   });
 };
 
-// --- Server ---
+// ── Server ───────────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -252,7 +233,6 @@ const server = http.createServer((req, res) => {
 
   // Static files
   let fp = path.join(PUBLIC_DIR, url.pathname === '/' ? 'index.html' : url.pathname);
-  // Security: don't serve outside PUBLIC_DIR
   if (!fp.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end(); }
   try {
     const data = fs.readFileSync(fp);
