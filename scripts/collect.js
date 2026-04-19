@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 'use strict';
 
-// Collects all OpenClaw agent status into data/status.json for GitHub Pages.
+// Collects all OpenClaw agent status into a single JSON snapshot.
+// Used both as a library (require('./collect.js').collect()) and as a CLI
+// (writes to data/status.json beside the project root for inspection).
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const OPENCLAW_DIR = path.join(os.homedir(), '.openclaw');
-const OUT_DIR = path.join(__dirname, 'data');
-const OUT_FILE = path.join(OUT_DIR, 'status.json');
+const OPENCLAW_DIR = process.env.OPENCLAW_DIR || path.join(os.homedir(), '.openclaw');
 
 function readJSON(fp) {
   try { return JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { return null; }
@@ -229,8 +229,14 @@ function collect() {
   return status;
 }
 
-// ── Write output ─────────────────────────────────────────────────────────────
-if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
-const data = collect();
-fs.writeFileSync(OUT_FILE, JSON.stringify(data, null, 2));
-console.log(`Collected ${data.agents.length} agents → ${OUT_FILE} (${(fs.statSync(OUT_FILE).size / 1024).toFixed(1)} KB)`);
+module.exports = { collect };
+
+// CLI mode: write a JSON snapshot to ./data/status.json for local inspection.
+if (require.main === module) {
+  const OUT_DIR = path.join(__dirname, '..', 'data');
+  const OUT_FILE = path.join(OUT_DIR, 'status.json');
+  if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
+  const data = collect();
+  fs.writeFileSync(OUT_FILE, JSON.stringify(data, null, 2));
+  console.log(`Collected ${data.agents.length} agents → ${OUT_FILE} (${(fs.statSync(OUT_FILE).size / 1024).toFixed(1)} KB)`);
+}

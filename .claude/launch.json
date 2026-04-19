@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "clawmonitor",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["server.js"],
-      "port": 7842
+      "name": "wrangler-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--remote", "--port", "8787", "--ip", "127.0.0.1"],
+      "port": 8787
     }
   ]
 }

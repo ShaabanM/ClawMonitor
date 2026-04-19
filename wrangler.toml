@@ -1,0 +1,23 @@
+name = "clawmonitor"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "c21a47523192ab39baf8b7e8ed5bcee2"
+
+# Static PWA assets served alongside the Worker
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# KV namespace storing the latest status snapshot
+[[kv_namespaces]]
+binding = "STATUS_KV"
+id = "fba485dfde904bfb91c7a233fd1033c9"
+
+[observability.logs]
+enabled = true
+
+[vars]
+# Public defaults; secrets (INGEST_TOKEN) are set via `wrangler secret put`.
+MAX_PAYLOAD_KB = "900"
